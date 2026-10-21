@@ -799,7 +799,8 @@ def build_ui() -> gr.Blocks:
                         comps["audio.output_track"] = gr.Dropdown(["0", "1", "2", "3", "mix"], value=v["audio.output_track"],
                                                                   label="Pista de audio del vídeo final", allow_custom_value=True)
                     with gr.Row():
-                        comps["render.encoder"] = gr.Dropdown([("Auto (NVENC si hay NVIDIA)", "auto"), ("NVENC", "nvenc"), ("CPU x264", "x264")],
+                        comps["render.encoder"] = gr.Dropdown([("Auto (GPU NVIDIA/AMD si hay)", "auto"), ("NVENC (NVIDIA)", "nvenc"),
+                                                               ("AMF (AMD)", "amf"), ("CPU x264", "x264")],
                                                               value=v["render.encoder"], label="Encoder")
                         comps["render.long_resolution"] = gr.Dropdown([("Original", "original"), ("1080p", "1080p")],
                                                                       value=v["render.long_resolution"], label="Resolución Modo Largo")

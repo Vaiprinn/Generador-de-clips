@@ -69,7 +69,7 @@ Todo offline y gratis: faster-whisper + FFmpeg + Gradio en `http://127.0.0.1:786
 
 | Archivo | Contenido |
 |---|---|
-| `<nombre>_short.mp4` / `<nombre>_largo.mp4` | H.264 (NVENC si hay NVIDIA, si no x264 CRF 20), AAC 48 kHz, fps del original |
+| `<nombre>_short.mp4` / `<nombre>_largo.mp4` | H.264 (NVENC si hay NVIDIA, AMF si hay AMD, si no x264 CRF 20), AAC 48 kHz, fps del original |
 | `<nombre>.ass` | Subtítulos quemados (editables con Aegisub) |
 | `<nombre>.srt` | Subtítulos aparte, en líneas más largas y con el texto original (para YouTube) |
 | `<nombre>_words.json` | Palabras con tiempos, probabilidad y marca de resaltado |
@@ -93,7 +93,7 @@ La transcripción se guarda en caché: re-renderizar el mismo vídeo con otros a
 app.py                  Interfaz Gradio
 pipeline/
   paths.py              Rutas y localización de ffmpeg (bin/ → PATH)
-  media.py              ffprobe, extracción de audio/fotogramas, detección de NVENC
+  media.py              ffprobe, extracción de audio/fotogramas, detección de NVENC/AMF
   transcribe.py         faster-whisper (CUDA int8_float16 → CPU int8 de respaldo) + caché
   subtitles.py          Estilos Frase/Resaltado/Karaoke, título gancho, .ass y .srt
   keywords.py           Palabras clave a resaltar (heurística, sin LLM)

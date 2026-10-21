@@ -21,7 +21,7 @@ from typing import Callable
 
 from . import subtitles
 from .layout import OUT_H, OUT_W, Rect, ShortLayout
-from .media import _NO_WINDOW, MediaInfo, has_nvenc
+from .media import _NO_WINDOW, MediaInfo, amf_args, resolve_encoder
 from .paths import FONTS_DIR, ROOT, ffmpeg_bin
 from .render import build_audio, ffmpeg_version
 from .transcribe import Word
@@ -252,8 +252,9 @@ def build_base_command(
         else:
             cmd += ["-filter_complex", graph]
     if select_expr:
-        use_nvenc = encoder == "nvenc" or (encoder == "auto" and has_nvenc())
-        venc = (["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", "17", "-b:v", "0"] if use_nvenc
+        enc = resolve_encoder(encoder)
+        venc = (["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", "17", "-b:v", "0"] if enc == "nvenc"
+                else amf_args(16) if enc == "amf"
                 else ["-c:v", "libx264", "-preset", "veryfast", "-crf", "16"])
         cmd += ["-map", "[v]", *venc, "-pix_fmt", "yuv420p", "-r", info.fps_str]
     else:

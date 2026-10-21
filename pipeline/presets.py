@@ -137,7 +137,7 @@ DEFAULTS: dict = {
         "export_srt": True,
     },
     "render": {
-        "encoder": "auto",  # auto | nvenc | x264
+        "encoder": "auto",  # auto | nvenc | amf | x264
         "crf": 20,
         "long_resolution": "original",  # Modo Largo: "original" | "1080p"
         "engine": "ffmpeg",  # Short: "ffmpeg" (rápido) | "remotion" (animaciones avanzadas, más lento)
