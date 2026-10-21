@@ -6,6 +6,7 @@ import subprocess
 import pytest
 
 from pipeline.job import process_video, render_preview_frame
+from pipeline.media import has_amf
 from pipeline.presets import load_preset
 from pipeline.transcribe import Word
 
@@ -57,6 +58,17 @@ def test_short_render(sample, tmp_path, layout_type, audio, style):
     assert {"partida_gta_short.mp4", "partida_gta.srt", "partida_gta.ass",
             "partida_gta_words.json", "partida_gta_meta.txt"} <= names
     assert "6. Render (FFmpeg)" in res.timings
+
+
+@pytest.mark.skipif(not has_amf(), reason="sin GPU AMD (h264_amf)")
+def test_short_render_amf(sample, tmp_path):
+    preset = load_preset("gta")
+    preset["render"]["encoder"] = "amf"
+    words = [Word(w, i * 0.4, i * 0.4 + 0.35) for i, w in enumerate("ay madre qué tragedia".split())]
+    res = process_video(sample, preset, words=words, output_dir=tmp_path)
+    v = next(s for s in _probe(res.video)["streams"] if s["codec_type"] == "video")
+    assert (v["codec_name"], v["width"], v["height"]) == ("h264", 1080, 1920)
+    assert "h264_amf" in res.summary
 
 
 def test_long_render(sample, tmp_path):

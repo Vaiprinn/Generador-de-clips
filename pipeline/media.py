@@ -100,27 +100,58 @@ def extract_frame(src: str | Path, dst: str | Path, t: float = 0.0) -> Path:
     return Path(dst)
 
 
-@functools.lru_cache(maxsize=1)
-def has_nvenc() -> bool:
-    """True si h264_nvenc está compilado Y hay una GPU NVIDIA que lo acepte."""
+@functools.lru_cache(maxsize=None)
+def _hw_encoder_ok(name: str) -> bool:
+    """True si el encoder está compilado Y hay una GPU que lo acepte (prueba real de 0,2 s)."""
     try:
         encoders = run([ffmpeg_bin(), "-hide_banner", "-encoders"]).stdout
-        if "h264_nvenc" not in encoders:
+        if name not in encoders:
             return False
         run([
             ffmpeg_bin(), "-hide_banner", "-loglevel", "error", "-f", "lavfi",
-            "-i", "color=c=black:s=256x256:d=0.2", "-c:v", "h264_nvenc", "-f", "null", "-",
+            "-i", "color=c=black:s=256x256:d=0.2", "-c:v", name, "-f", "null", "-",
         ])
         return True
     except Exception:
         return False
 
 
+def has_nvenc() -> bool:
+    """True si h264_nvenc funciona (GPU NVIDIA)."""
+    return _hw_encoder_ok("h264_nvenc")
+
+
+def has_amf() -> bool:
+    """True si h264_amf funciona (GPU AMD Radeon)."""
+    return _hw_encoder_ok("h264_amf")
+
+
+def resolve_encoder(encoder: str = "auto") -> str:
+    """'auto' → 'nvenc' si hay NVIDIA, si no 'amf' si hay AMD, si no 'x264'."""
+    if encoder in ("nvenc", "amf", "x264"):
+        return encoder
+    if has_nvenc():
+        return "nvenc"
+    if has_amf():
+        return "amf"
+    return "x264"
+
+
+def amf_args(qp: int) -> list[str]:
+    """h264_amf con calidad constante (CQP); qp ≈ crf de x264."""
+    return [
+        "-c:v", "h264_amf", "-usage", "transcoding", "-quality", "quality", "-rc", "cqp",
+        "-qp_i", str(qp), "-qp_p", str(qp + 2),
+    ]
+
+
 def video_encoder_args(encoder: str = "auto", crf: int = 20) -> list[str]:
-    use_nvenc = encoder == "nvenc" or (encoder == "auto" and has_nvenc())
-    if use_nvenc:
+    enc = resolve_encoder(encoder)
+    if enc == "nvenc":
         return [
             "-c:v", "h264_nvenc", "-preset", "p5", "-tune", "hq", "-rc", "vbr",
             "-cq", str(crf + 1), "-b:v", "0", "-profile:v", "high", "-pix_fmt", "yuv420p",
         ]
+    if enc == "amf":
+        return [*amf_args(crf), "-profile:v", "high", "-pix_fmt", "yuv420p"]
     return ["-c:v", "libx264", "-preset", "medium", "-crf", str(crf), "-pix_fmt", "yuv420p"]

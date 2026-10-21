@@ -327,7 +327,7 @@ def process_video(
                     cmd, out_dur, output_dir / f"{stem}_ffmpeg.log",
                     lambda f: report(lo + (hi - lo) * f, f"Renderizando… {f * 100:.0f} %"),
                 )
-            encoder = "h264_nvenc" if "h264_nvenc" in cmd else "libx264"
+            encoder = next((e for e in ("h264_nvenc", "h264_amf") if e in cmd), "libx264")
 
         n_hl = sum(1 for w in words_out if w.hl)
         mode_txt = f"Short | Layout: {preset['layout']['type']}" if short else "Largo"
