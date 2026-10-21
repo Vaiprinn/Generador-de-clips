@@ -1,5 +1,5 @@
 # ClipForge — dependencias base (Fase 1). Python 3.11.
-gradio>=5.0,<7
+gradio>=6.0,<7
 faster-whisper>=1.1.1
 Pillow>=10.0
 python-dotenv>=1.0

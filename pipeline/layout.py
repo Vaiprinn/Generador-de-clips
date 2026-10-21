@@ -1,7 +1,10 @@
 """Layouts del Modo Short (1080x1920) y construcción del filtergraph de FFmpeg.
 
-Fase 1: "facecam_esquina" (gameplay 9:16 a pantalla completa + facecam flotante con
-esquinas redondeadas y sombra) y "sin_facecam".
+- "facecam_esquina": gameplay 9:16 a pantalla completa + facecam flotante con
+  esquinas redondeadas y sombra (estilo Kesto).
+- "split":           facecam arriba ocupando el ancho, gameplay abajo.
+- "blur":            gameplay 16:9 centrado sobre un fondo desenfocado.
+- "sin_facecam":     solo gameplay 9:16.
 """
 from __future__ import annotations
 
@@ -11,11 +14,13 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFilter
 
 OUT_W, OUT_H = 1080, 1920
+LAYOUTS = ("facecam_esquina", "split", "blur", "sin_facecam")
 
 SHADOW_PAD = 40  # margen alrededor de la facecam para que la sombra difumine
 SHADOW_OFFSET = (0, 10)
 SHADOW_BLUR = 16
 SHADOW_OPACITY = 150  # 0-255
+MAX_ZOOM = 3.0
 
 
 @dataclass
@@ -28,42 +33,95 @@ class Rect:
     def as_crop(self) -> str:
         return f"crop={self.w}:{self.h}:{self.x}:{self.y}"
 
+    @property
+    def bottom(self) -> int:
+        return self.y + self.h
+
 
 @dataclass
 class ShortLayout:
+    type: str
     gameplay: Rect  # recorte en el vídeo original
-    facecam_src: Rect | None  # recorte en el vídeo original
-    facecam_dst: Rect | None  # posición/tamaño en la salida
+    gameplay_dst: Rect  # dónde va en la salida
+    facecam_src: Rect | None = None  # recorte en el vídeo original
+    facecam_dst: Rect | None = None  # posición/tamaño en la salida
+    background: Rect | None = None  # blur: recorte para el fondo desenfocado
+
+    @property
+    def hook_y(self) -> int:
+        """Centro vertical por defecto del título gancho (debajo de la facecam)."""
+        if self.type == "facecam_esquina" and self.facecam_dst:
+            return min(self.facecam_dst.bottom + 110, 760)
+        if self.type == "split" and self.facecam_dst:
+            return self.facecam_dst.bottom + 120
+        if self.type == "blur":
+            return max(self.gameplay_dst.y - 140, 220)
+        return 620
 
 
 def _even(v: float) -> int:
     return max(2, int(round(v / 2)) * 2)
 
 
-def gameplay_crop(src_w: int, src_h: int, offset: float = 0.0, zoom: float = 1.0) -> Rect:
-    """Recorte 9:16 del vídeo original, con desplazamiento horizontal y zoom."""
-    target = OUT_W / OUT_H
-    zoom = max(1.0, float(zoom))
-    if src_w / src_h > target:  # vídeo más ancho que 9:16 (lo normal: 16:9)
+def _clamp(v: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, v))
+
+
+def aspect_crop(
+    src_w: int, src_h: int, aspect: float,
+    offset_x: float = 0.0, offset_y: float = 0.0, zoom: float = 1.0,
+) -> Rect:
+    """Recorte con la relación `aspect` (ancho/alto), desplazamiento (-1..1) y zoom (≥1)."""
+    zoom = _clamp(float(zoom), 1.0, MAX_ZOOM)
+    if src_w / src_h > aspect:  # el original es más ancho → se recorta a lo ancho
         h = src_h / zoom
-        w = h * target
-    else:  # vídeo ya vertical o más estrecho
+        w = h * aspect
+    else:
         w = src_w / zoom
-        h = w / target
+        h = w / aspect
     w, h = min(_even(w), src_w - src_w % 2), min(_even(h), src_h - src_h % 2)
-    offset = max(-1.0, min(1.0, float(offset)))
-    x = (src_w - w) / 2 * (1 + offset)
-    y = (src_h - h) / 2
+    x = (src_w - w) / 2 * (1 + _clamp(float(offset_x), -1, 1))
+    y = (src_h - h) / 2 * (1 + _clamp(float(offset_y), -1, 1))
     return Rect(int(x), int(y), w, h)
 
 
+def gameplay_crop(src_w: int, src_h: int, offset: float = 0.0, zoom: float = 1.0, offset_y: float = 0.0) -> Rect:
+    """Recorte 9:16 del vídeo original."""
+    return aspect_crop(src_w, src_h, OUT_W / OUT_H, offset, offset_y, zoom)
+
+
+def gameplay_from_rect(src_w: int, src_h: int, frac: list[float], aspect: float = OUT_W / OUT_H) -> tuple[float, float, float]:
+    """Convierte un rectángulo marcado a mano en (offset_x, offset_y, zoom) del recorte."""
+    fx, fy, fw, fh = (_clamp(float(v), 0, 1) for v in frac)
+    base = aspect_crop(src_w, src_h, aspect)
+    rw, rh = max(fw * src_w, 2), max(fh * src_h, 2)
+    zoom = _clamp(min(base.w / rw, base.h / rh), 1.0, MAX_ZOOM)
+    cw, ch = base.w / zoom, base.h / zoom
+    cx, cy = (fx + fw / 2) * src_w, (fy + fh / 2) * src_h
+
+    def off(center, size, total):
+        free = (total - size) / 2
+        return _clamp((center - size / 2) / free - 1, -1, 1) if free > 1 else 0.0
+
+    return round(off(cx, cw, src_w), 3), round(off(cy, ch, src_h), 3), round(zoom, 3)
+
+
 def facecam_source_rect(src_w: int, src_h: int, frac: list[float]) -> Rect:
-    fx, fy, fw, fh = (max(0.0, min(1.0, float(v))) for v in frac)
+    fx, fy, fw, fh = (_clamp(float(v), 0, 1) for v in frac)
     w = min(_even(fw * src_w), src_w - src_w % 2)
     h = min(_even(fh * src_h), src_h - src_h % 2)
     x = min(int(fx * src_w), src_w - w)
     y = min(int(fy * src_h), src_h - h)
     return Rect(x, y, w, h)
+
+
+def cover_crop(rect: Rect, aspect: float) -> Rect:
+    """Recorta `rect` (centrado) para que tenga la relación `aspect`."""
+    if rect.w / rect.h > aspect:
+        w = _even(rect.h * aspect)
+        return Rect(rect.x + (rect.w - w) // 2, rect.y, min(w, rect.w), rect.h)
+    h = _even(rect.w / aspect)
+    return Rect(rect.x, rect.y + (rect.h - h) // 2, rect.w, min(h, rect.h))
 
 
 def facecam_dest_rect(src: Rect, cfg: dict) -> Rect:
@@ -82,11 +140,35 @@ def facecam_dest_rect(src: Rect, cfg: dict) -> Rect:
 
 
 def compute_short_layout(src_w: int, src_h: int, cfg: dict) -> ShortLayout:
-    gp = gameplay_crop(src_w, src_h, cfg.get("gameplay_offset", 0.0), cfg.get("gameplay_zoom", 1.0))
-    if cfg.get("type") == "sin_facecam":
-        return ShortLayout(gp, None, None)
-    fc_src = facecam_source_rect(src_w, src_h, cfg.get("facecam_rect", [0, 0, 0.25, 0.25]))
-    return ShortLayout(gp, fc_src, facecam_dest_rect(fc_src, cfg))
+    kind = cfg.get("type", "facecam_esquina")
+    if kind not in LAYOUTS:
+        kind = "facecam_esquina"
+    ox, oy, zoom = cfg.get("gameplay_offset", 0.0), cfg.get("gameplay_offset_y", 0.0), cfg.get("gameplay_zoom", 1.0)
+    full = Rect(0, 0, OUT_W, OUT_H)
+    fc_rect = facecam_source_rect(src_w, src_h, cfg.get("facecam_rect", [0, 0, 0.25, 0.25]))
+
+    if kind == "split":
+        top_h = _even(OUT_H * _clamp(float(cfg.get("split_ratio", 0.42)), 0.15, 0.7))
+        bottom_h = OUT_H - top_h
+        return ShortLayout(
+            kind,
+            gameplay=aspect_crop(src_w, src_h, OUT_W / bottom_h, ox, oy, zoom),
+            gameplay_dst=Rect(0, top_h, OUT_W, bottom_h),
+            facecam_src=cover_crop(fc_rect, OUT_W / top_h),
+            facecam_dst=Rect(0, 0, OUT_W, top_h),
+        )
+    if kind == "blur":
+        fg = aspect_crop(src_w, src_h, src_w / src_h, ox, oy, zoom)
+        fg_h = _even(OUT_W * fg.h / fg.w)
+        y = int(_clamp(float(cfg.get("blur_fg_y", OUT_H / 2)) - fg_h / 2, 0, OUT_H - fg_h))
+        return ShortLayout(
+            kind, gameplay=fg, gameplay_dst=Rect(0, y, OUT_W, fg_h),
+            background=gameplay_crop(src_w, src_h),
+        )
+    gp = aspect_crop(src_w, src_h, OUT_W / OUT_H, ox, oy, zoom)
+    if kind == "sin_facecam":
+        return ShortLayout(kind, gp, full)
+    return ShortLayout(kind, gp, full, fc_rect, facecam_dest_rect(fc_rect, cfg))
 
 
 # ---------------------------------------------------------------- máscaras
@@ -129,6 +211,17 @@ class FilterGraph:
     video_label: str
 
 
+def _subs_and_finish(parts: list[str], last: str, ass_path: Path | None, fonts_dir: Path | None) -> str:
+    if ass_path is not None:
+        opts = f"filename={escape_filter_path(ass_path)}"
+        if fonts_dir is not None and Path(fonts_dir).is_dir():
+            opts += f":fontsdir={escape_filter_path(fonts_dir)}"
+        parts.append(f"{last}ass={opts}[subs]")
+        last = "[subs]"
+    parts.append(f"{last}format=yuv420p[vout]")
+    return ";".join(parts)
+
+
 def build_short_filter(
     layout: ShortLayout,
     cfg: dict,
@@ -140,47 +233,75 @@ def build_short_filter(
     """Construye el filtergraph de un solo pase. La entrada 0 es el vídeo original."""
     parts: list[str] = []
     inputs: list[list[str]] = []
-    gp = layout.gameplay
+    gp, dst = layout.gameplay, layout.gameplay_dst
+    scale = "flags=lanczos,setsar=1"
+
+    if layout.type == "blur":
+        bg = layout.background
+        blur = int(_clamp(float(cfg.get("blur_strength", 20)), 0, 60))
+        # Desenfoque barato: se reduce, se difumina y se vuelve a ampliar.
+        blur_f = f",boxblur={max(1, blur // 2)}:2" if blur else ""
+        parts.append("[0:v]split=2[bg_in][fg_in]")
+        parts.append(
+            f"[bg_in]{bg.as_crop()},scale=270:480{blur_f},scale={OUT_W}:{OUT_H}:flags=bicubic,"
+            f"setsar=1,eq=brightness=-0.06,format=yuv420p[bg0]"
+        )
+        parts.append(f"[fg_in]{gp.as_crop()},scale={dst.w}:{dst.h}:{scale}[fg0]")
+        parts.append(f"[bg0][fg0]overlay=0:{dst.y}[bg2]")
+        return FilterGraph(_subs_and_finish(parts, "[bg2]", ass_path, fonts_dir), inputs, "[vout]")
+
     has_fc = layout.facecam_src is not None
     src_v = "[0:v]"
     if has_fc:
         parts.append("[0:v]split=2[gp_in][fc_in]")
         src_v = "[gp_in]"
-    parts.append(
-        f"{src_v}{gp.as_crop()},scale={OUT_W}:{OUT_H}:flags=lanczos,setsar=1,format=yuv420p[bg0]"
-    )
+    pad = f",pad={OUT_W}:{OUT_H}:{dst.x}:{dst.y}" if (dst.w, dst.h) != (OUT_W, OUT_H) else ""
+    parts.append(f"{src_v}{gp.as_crop()},scale={dst.w}:{dst.h}:{scale}{pad},format=yuv420p[bg0]")
     last = "[bg0]"
 
-    if has_fc:
-        src, dst = layout.facecam_src, layout.facecam_dst
+    if has_fc and layout.type == "split":
+        src, fdst = layout.facecam_src, layout.facecam_dst
+        parts.append(f"[fc_in]{src.as_crop()},scale={fdst.w}:{fdst.h}:{scale}[fc1]")
+        parts.append(f"{last}[fc1]overlay={fdst.x}:{fdst.y}[bg2]")
+        last = "[bg2]"
+    elif has_fc:
+        src, fdst = layout.facecam_src, layout.facecam_dst
         radius = int(cfg.get("facecam_radius", 28))
         idx = first_input
-        mask = make_round_mask(dst.w, dst.h, radius, work_dir / "facecam_mask.png")
+        mask = make_round_mask(fdst.w, fdst.h, radius, work_dir / "facecam_mask.png")
         inputs.append(["-loop", "1", "-i", str(mask)])
         mask_idx = idx
         idx += 1
         if cfg.get("facecam_shadow", True):
-            shadow = make_shadow(dst.w, dst.h, radius, work_dir / "facecam_shadow.png")
+            shadow = make_shadow(fdst.w, fdst.h, radius, work_dir / "facecam_shadow.png")
             inputs.append(["-loop", "1", "-i", str(shadow)])
-            sx = dst.x - SHADOW_PAD + SHADOW_OFFSET[0]
-            sy = dst.y - SHADOW_PAD + SHADOW_OFFSET[1]
+            sx = fdst.x - SHADOW_PAD + SHADOW_OFFSET[0]
+            sy = fdst.y - SHADOW_PAD + SHADOW_OFFSET[1]
             parts.append(f"{last}[{idx}:v]overlay={sx}:{sy}:shortest=1[bg1]")
             last = "[bg1]"
             idx += 1
-        parts.append(
-            f"[fc_in]{src.as_crop()},scale={dst.w}:{dst.h}:flags=lanczos,setsar=1,format=rgba[fc0]"
-        )
+        parts.append(f"[fc_in]{src.as_crop()},scale={fdst.w}:{fdst.h}:{scale},format=rgba[fc0]")
         parts.append(f"[{mask_idx}:v]format=gray[fcmask]")
         parts.append("[fc0][fcmask]alphamerge[fc1]")
-        parts.append(f"{last}[fc1]overlay={dst.x}:{dst.y}:shortest=1[bg2]")
+        parts.append(f"{last}[fc1]overlay={fdst.x}:{fdst.y}:shortest=1[bg2]")
         last = "[bg2]"
 
-    if ass_path is not None:
-        opts = f"filename={escape_filter_path(ass_path)}"
-        if fonts_dir is not None and Path(fonts_dir).is_dir():
-            opts += f":fontsdir={escape_filter_path(fonts_dir)}"
-        parts.append(f"{last}ass={opts}[subs]")
-        last = "[subs]"
+    return FilterGraph(_subs_and_finish(parts, last, ass_path, fonts_dir), inputs, "[vout]")
 
-    parts.append(f"{last}format=yuv420p[vout]")
-    return FilterGraph(";".join(parts), inputs, "[vout]")
+
+# ---------------------------------------------------------------- Modo Largo
+
+def long_output_size(src_w: int, src_h: int, resolution: str = "original") -> tuple[int, int]:
+    if resolution == "1080p":
+        return _even(1080 * src_w / src_h), 1080
+    return src_w - src_w % 2, src_h - src_h % 2
+
+
+def build_long_filter(
+    src_w: int, src_h: int, resolution: str,
+    ass_path: Path | None = None, fonts_dir: Path | None = None,
+) -> tuple[FilterGraph, tuple[int, int]]:
+    """Modo Largo: se mantiene el 16:9 (o la resolución original) y se queman los subtítulos."""
+    w, h = long_output_size(src_w, src_h, resolution)
+    first = f"[0:v]scale={w}:{h}:flags=lanczos,setsar=1[base]" if (w, h) != (src_w, src_h) else "[0:v]setsar=1[base]"
+    return FilterGraph(_subs_and_finish([first], "[base]", ass_path, fonts_dir), [], "[vout]"), (w, h)

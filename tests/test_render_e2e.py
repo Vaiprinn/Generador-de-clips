@@ -32,10 +32,16 @@ def _probe(path):
     return json.loads(out)
 
 
-@pytest.mark.parametrize("layout_type,audio", [("facecam_esquina", "mix"), ("sin_facecam", "1")])
-def test_short_render(sample, tmp_path, layout_type, audio):
+@pytest.mark.parametrize("layout_type,audio,style", [
+    ("facecam_esquina", "mix", "frase"), ("sin_facecam", "1", "resaltado"),
+    ("split", "0", "karaoke"), ("blur", "0", "frase"),
+])
+def test_short_render(sample, tmp_path, layout_type, audio, style):
     preset = load_preset("gta")
     preset["layout"]["type"] = layout_type
+    preset["subtitles"]["style"] = style
+    preset["toggles"]["hook_title"] = True
+    preset["hook"]["text"] = "una tragedia"
     preset["audio"]["output_track"] = audio
     preset["render"]["encoder"] = "x264"
     words = [Word(w, i * 0.4, i * 0.4 + 0.35) for i, w in enumerate("ay madre qué tragedia de partida".split())]
@@ -51,6 +57,28 @@ def test_short_render(sample, tmp_path, layout_type, audio):
     assert {"partida_gta_short.mp4", "partida_gta.srt", "partida_gta.ass",
             "partida_gta_words.json", "partida_gta_meta.txt"} <= names
     assert "5. Render (FFmpeg)" in res.timings
+
+
+def test_long_render(sample, tmp_path):
+    preset = load_preset("largo_youtube")
+    preset["render"]["encoder"] = "x264"
+    preset["toggles"]["hook_title"] = True  # se ignora en Modo Largo
+    words = [Word(w, i * 0.4, i * 0.4 + 0.35) for i, w in enumerate("bienvenidos a un vídeo nuevo".split())]
+    res = process_video(sample, preset, words=words, output_dir=tmp_path)
+    v = next(s for s in _probe(res.video)["streams"] if s["codec_type"] == "video")
+    assert (v["width"], v["height"]) == (1280, 720)
+    assert res.video.name == "partida_gta_largo.mp4"
+    assert (tmp_path / "partida_gta.srt").exists()
+    assert "Gancho" not in (tmp_path / "partida_gta.ass").read_text(encoding="utf-8")
+
+
+def test_reviewed_words_keep_manual_highlights(sample, tmp_path):
+    preset = load_preset("gta")
+    preset["render"]["encoder"] = "x264"
+    words = [Word("hola", 0.1, 0.4, hl=True), Word("franklin", 0.5, 0.9, hl=False)]
+    process_video(sample, preset, words=words, output_dir=tmp_path, reviewed=True)
+    data = json.loads((tmp_path / "partida_gta_words.json").read_text(encoding="utf-8"))
+    assert [d["hl"] for d in data] == [True, False]
 
 
 def test_preview_frame(sample, tmp_path):

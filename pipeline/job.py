@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import Callable
 
 from . import media, subtitles
-from .layout import OUT_H, OUT_W, build_short_filter, compute_short_layout
+from .keywords import auto_highlight
+from .layout import OUT_H, OUT_W, build_long_filter, build_short_filter, compute_short_layout
 from .paths import FONTS_DIR, OUTPUT_DIR, WORK_DIR, ensure_dirs
 from .render import build_command, run_ffmpeg
 from .timing import StepTimer
@@ -37,6 +38,56 @@ def safe_stem(path: str | Path) -> str:
     return stem or "clip"
 
 
+def is_short(preset: dict) -> bool:
+    return preset.get("mode", "short") != "largo"
+
+
+def transcribe_video(
+    src: str | Path,
+    preset: dict,
+    progress: ProgressFn | None = None,
+    timer: StepTimer | None = None,
+    info: media.MediaInfo | None = None,
+) -> list[Word]:
+    """Extrae la pista del micro, transcribe (con caché) y sugiere palabras clave."""
+    ensure_dirs()
+    report = progress or (lambda f, m: None)
+    timer = timer or StepTimer()
+    src = Path(src)
+    info = info or media.probe(src)
+    if not info.audio_tracks:
+        raise ValueError("El vídeo no tiene audio que transcribir.")
+    track = int(preset["audio"].get("transcribe_track", 0) or 0)
+    track = track if 0 <= track < len(info.audio_tracks) else 0
+    work = Path(tempfile.mkdtemp(prefix="asr_", dir=WORK_DIR))
+    try:
+        def make_wav() -> Path:
+            report(0.0, "Extrayendo audio…")
+            with timer.step("2. Extraer audio"):
+                return media.extract_audio(src, work / "audio.wav", track)
+
+        with timer.step("3. Transcribir (faster-whisper)"):
+            words, device = transcribe_cached(src, make_wav, track, preset["transcription"], info.duration, report)
+        auto_highlight(words, preset["transcription"].get("glossary", ""))
+        report(1.0, f"Transcripción lista ({len(words)} palabras, {device}).")
+        return words
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def _hook_cfg(preset: dict, hook_text: str | None, layout_hook_y: int) -> dict | None:
+    if not is_short(preset) or not preset["toggles"].get("hook_title", False):
+        return None
+    hook = dict(preset["hook"])
+    if hook_text is not None:
+        hook["text"] = hook_text
+    if not (hook.get("text") or "").strip():
+        return None
+    if not int(hook.get("pos_y") or 0):
+        hook["pos_y"] = layout_hook_y
+    return hook
+
+
 def process_video(
     src: str | Path,
     preset: dict,
@@ -44,8 +95,14 @@ def process_video(
     words: list[Word] | None = None,
     output_dir: Path = OUTPUT_DIR,
     stem: str | None = None,
+    reviewed: bool = False,
+    hook_text: str | None = None,
 ) -> JobResult:
-    """Procesa un vídeo en Modo Short. `words` permite saltarse la transcripción."""
+    """Procesa un vídeo (Modo Short o Largo).
+
+    `words` permite saltarse la transcripción (p. ej. la tabla de revisión). Si
+    `reviewed` es True se respetan sus marcas de resaltado tal cual.
+    """
     ensure_dirs()
     output_dir.mkdir(parents=True, exist_ok=True)
     report = progress or (lambda f, m: None)
@@ -54,9 +111,8 @@ def process_video(
     timer = StepTimer()
     toggles = preset["toggles"]
     sub_cfg = preset["subtitles"]
-
-    if preset.get("mode", "short") != "short":
-        raise NotImplementedError("El Modo Largo llega en la Fase 2.")
+    short = is_short(preset)
+    need_words = toggles.get("subtitles", True) or toggles.get("export_srt", True)
 
     work = Path(tempfile.mkdtemp(prefix=f"{stem}_", dir=WORK_DIR))
     try:
@@ -64,56 +120,58 @@ def process_video(
         with timer.step("1. Analizar vídeo (ffprobe)"):
             info = media.probe(src)
 
-        if toggles.get("subtitles", True) or toggles.get("export_srt", True):
-            if words is None:
-                track = int(preset["audio"].get("transcribe_track", 0))
-                if not info.audio_tracks:
-                    raise ValueError("El vídeo no tiene audio que transcribir.")
-                track = track if track < len(info.audio_tracks) else 0
-                wav_holder: dict[str, Path] = {}
-
-                def make_wav() -> Path:
-                    report(0.02, "Extrayendo audio…")
-                    with timer.step("2. Extraer audio"):
-                        wav_holder["p"] = media.extract_audio(src, work / "audio.wav", track)
-                    return wav_holder["p"]
-
+        if words is None:
+            if need_words:
                 lo, hi = _W_TRANSCRIBE
-                with timer.step("3. Transcribir (faster-whisper)"):
-                    words, device = transcribe_cached(
-                        src, make_wav, track, preset["transcription"], info.duration,
-                        lambda f, m: report(lo + (hi - lo) * f, m),
-                    )
-                report(hi, f"Transcripción lista ({len(words)} palabras, {device}).")
+                words = transcribe_video(src, preset, lambda f, m: report(lo + (hi - lo) * f, m), timer, info)
+            else:
+                words = []
+        elif not reviewed:
+            auto_highlight(words, preset["transcription"].get("glossary", ""))
+        words = [w for w in words if w.text.strip()]
+
+        if short:
+            layout = compute_short_layout(info.width, info.height, preset["layout"])
+            out_w, out_h = OUT_W, OUT_H
+            hook = _hook_cfg(preset, hook_text, layout.hook_y)
         else:
-            words = []
+            layout = None
+            fg_size = build_long_filter(info.width, info.height, preset["render"].get("long_resolution", "original"))[1]
+            out_w, out_h = fg_size
+            hook = None
 
         report(0.56, "Generando subtítulos…")
         files: list[Path] = []
         with timer.step("4. Subtítulos (.ass/.srt)"):
-            phrases = subtitles.build_phrases(words, sub_cfg)
             ass_out = output_dir / f"{stem}.ass"
-            subtitles.write_text(ass_out, subtitles.build_ass(phrases, sub_cfg, OUT_W, OUT_H))
+            ass = subtitles.build_ass(
+                words, sub_cfg, out_w, out_h, short=short,
+                highlight=toggles.get("highlight_keywords", False),
+                hook=hook, duration=info.duration,
+                show_subtitles=toggles.get("subtitles", True),
+            )
+            subtitles.write_text(ass_out, ass)
             files.append(ass_out)
             if toggles.get("export_srt", True):
                 srt_out = output_dir / f"{stem}.srt"
-                subtitles.write_text(srt_out, subtitles.build_srt(phrases, sub_cfg))
+                subtitles.write_text(srt_out, subtitles.build_srt(words))
                 files.append(srt_out)
             words_out = output_dir / f"{stem}_words.json"
             words_out.write_text(
                 json.dumps(words_to_json(words), ensure_ascii=False, indent=1), encoding="utf-8"
             )
             files.append(words_out)
+        burn = toggles.get("subtitles", True) or hook is not None
 
         report(_W_RENDER[0], "Renderizando…")
-        out_video = output_dir / f"{stem}_short.mp4"
+        out_video = output_dir / f"{stem}_{'short' if short else 'largo'}.mp4"
         with timer.step("5. Render (FFmpeg)"):
-            layout = compute_short_layout(info.width, info.height, preset["layout"])
-            fg = build_short_filter(
-                layout, preset["layout"], work,
-                ass_path=ass_out if toggles.get("subtitles", True) else None,
-                fonts_dir=FONTS_DIR,
-            )
+            if short:
+                fg = build_short_filter(layout, preset["layout"], work,
+                                        ass_path=ass_out if burn else None, fonts_dir=FONTS_DIR)
+            else:
+                fg, _ = build_long_filter(info.width, info.height, preset["render"].get("long_resolution", "original"),
+                                          ass_path=ass_out if burn else None, fonts_dir=FONTS_DIR)
             cmd = build_command(info, fg, out_video, preset["render"], str(preset["audio"]["output_track"]))
             lo, hi = _W_RENDER
             run_ffmpeg(
@@ -122,13 +180,16 @@ def process_video(
             )
 
         encoder = "h264_nvenc" if "h264_nvenc" in cmd else "libx264"
+        n_hl = sum(1 for w in words if w.hl)
+        mode_txt = f"Short | Layout: {preset['layout']['type']}" if short else "Largo"
         summary = (
             f"ClipForge — {src.name}\n"
-            f"Preset: {preset.get('name')}  |  Modo: Short  |  Layout: {preset['layout']['type']}\n"
+            f"Preset: {preset.get('name')}  |  Modo: {mode_txt}  |  Estilo: {sub_cfg.get('style')}\n"
             f"Origen: {info.width}x{info.height} @ {float(info.fps):.2f} fps, {info.duration:.1f} s, "
             f"{len(info.audio_tracks)} pista(s) de audio\n"
-            f"Salida: {OUT_W}x{OUT_H}, {encoder}\n"
-            f"Palabras: {len(words)}  |  Frases: {len(phrases)}\n\n"
+            f"Salida: {out_w}x{out_h}, {encoder}\n"
+            f"Palabras: {len(words)}  |  Clave: {n_hl}  |  Gancho: {hook['text'] if hook else '—'}"
+            f"{'  |  revisado a mano' if reviewed else ''}\n\n"
             f"Tiempos:\n{timer.summary()}\n"
         )
         meta = output_dir / f"{stem}_meta.txt"
@@ -140,21 +201,45 @@ def process_video(
         shutil.rmtree(work, ignore_errors=True)
 
 
-def render_preview_frame(src: str | Path, preset: dict, t: float, out_png: Path) -> Path:
-    """Renderiza un único fotograma con el layout y un subtítulo de ejemplo."""
+_SAMPLE = "qué locura de partida chicos"
+
+
+def render_preview_frame(
+    src: str | Path, preset: dict, t: float, out_png: Path, hook_text: str | None = None
+) -> Path:
+    """Renderiza un único fotograma con el layout, un subtítulo de ejemplo y el gancho."""
     ensure_dirs()
     info = media.probe(src)
     work = Path(tempfile.mkdtemp(prefix="preview_", dir=WORK_DIR))
     try:
-        sub_cfg = preset["subtitles"]
-        ass = None
-        if preset["toggles"].get("subtitles", True):
-            sample = [Word(w, 0.0, 30.0) for w in "así se verán tus subtítulos".split()]
-            phrase = subtitles.Phrase(sample, 0.0, 30.0)
-            ass = subtitles.write_text(work / "preview.ass", subtitles.build_ass([phrase], sub_cfg))
-        layout = compute_short_layout(info.width, info.height, preset["layout"])
-        fg = build_short_filter(layout, preset["layout"], work, ass_path=ass, fonts_dir=FONTS_DIR)
-        t = max(0.0, min(t, max(info.duration - 0.1, 0.0)))
+        short = is_short(preset)
+        sample = [Word(w, i * 0.4, i * 0.4 + 0.35, hl=(w == "locura")) for i, w in enumerate(_SAMPLE.split())]
+        # Solo la primera frase del estilo elegido, visible desde t=0.
+        sample = subtitles.group_phrases(
+            sample, int(preset["subtitles"].get("min_words", 3)),
+            int(preset["subtitles"].get("max_words", 5)), int(preset["subtitles"].get("max_chars", 24)),
+        )[0]
+        for w in sample:
+            w.start, w.end = 0.0, 30.0
+        if short:
+            layout = compute_short_layout(info.width, info.height, preset["layout"])
+            out_w, out_h = OUT_W, OUT_H
+            hook_default = hook_text if hook_text is not None else (preset["hook"].get("text") or "una tragedia")
+            hook = _hook_cfg(preset, hook_default, layout.hook_y)
+        else:
+            out_w, out_h = build_long_filter(info.width, info.height, preset["render"].get("long_resolution", "original"))[1]
+            hook = None
+        ass = subtitles.write_text(work / "preview.ass", subtitles.build_ass(
+            sample, preset["subtitles"], out_w, out_h, short=short,
+            highlight=preset["toggles"].get("highlight_keywords", False),
+            hook=hook, animate=False, show_subtitles=preset["toggles"].get("subtitles", True),
+        ))
+        if short:
+            fg = build_short_filter(layout, preset["layout"], work, ass_path=ass, fonts_dir=FONTS_DIR)
+        else:
+            fg, _ = build_long_filter(info.width, info.height, preset["render"].get("long_resolution", "original"),
+                                      ass_path=ass, fonts_dir=FONTS_DIR)
+        t = max(0.0, min(t, max(info.duration - 0.2, 0.0)))
         cmd = build_command(info, fg, out_png, preset["render"], seek=t, frames=1)
         media.run(cmd)
         return out_png

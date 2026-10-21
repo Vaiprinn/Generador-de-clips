@@ -15,10 +15,10 @@ from .paths import PRESETS_DIR
 
 DEFAULTS: dict = {
     "name": "default",
-    "mode": "short",  # "short" | "largo" (Fase 2)
+    "mode": "short",  # "short" (9:16) | "largo" (16:9, sin facecam ni gancho)
     "handle": "",
     "layout": {
-        "type": "facecam_esquina",  # "facecam_esquina" | "sin_facecam" (split/blur: Fase 2)
+        "type": "facecam_esquina",  # facecam_esquina | split | blur | sin_facecam
         # Rectángulo de la facecam en el vídeo ORIGINAL, en fracciones [x, y, ancho, alto].
         "facecam_rect": [0.0, 0.0, 0.25, 0.25],
         "facecam_position": "top-right",  # top-right | top-left | top-center
@@ -29,10 +29,14 @@ DEFAULTS: dict = {
         "facecam_shadow": True,
         # Recorte 9:16 del gameplay: -1 = todo a la izquierda, 0 = centro, 1 = derecha.
         "gameplay_offset": 0.0,
+        "gameplay_offset_y": 0.0,  # -1 arriba · 0 centro · 1 abajo (solo con zoom)
         "gameplay_zoom": 1.0,
+        "split_ratio": 0.42,  # split: alto de la facecam (fracción de 1920)
+        "blur_strength": 20,  # blur: intensidad del desenfoque del fondo
+        "blur_fg_y": 960,  # blur: centro vertical del gameplay 16:9
     },
     "subtitles": {
-        "style": "frase",  # "frase" (Fase 1) | "resaltado" | "karaoke" (Fase 2)
+        "style": "frase",  # frase | resaltado | karaoke
         "font": "Nunito Black",
         "font_size": 72,
         "primary_color": "#FFFFFF",
@@ -47,7 +51,24 @@ DEFAULTS: dict = {
         "max_chars": 24,
         "pos_y": 1100,  # centro vertical del subtítulo en la salida 1080x1920
         "fade_ms": 60,
-        "highlight_color": "#FFE14D",
+        "highlight_color": "#FFE14D",  # palabras clave
+        "active_color": "#39E75F",  # karaoke: palabra que se está diciendo
+        "pop_scale": 115,  # karaoke: % del "pop"
+    },
+    # Título gancho (solo Modo Short). El texto se escribe por vídeo en la revisión.
+    "hook": {
+        "text": "",
+        "font": "Montserrat Black",
+        "font_size": 120,
+        "fill": "#FFFFFF",
+        "outline_color": "#E3262E",
+        "outline": 12,
+        "outer_color": "#FFFFFF",
+        "outer": 10,
+        "uppercase": True,
+        "duration": 2.5,  # segundos; 0 = todo el clip
+        "pos_y": 0,  # 0 = automático (debajo de la facecam)
+        "tilt": 0,  # grados de giro
     },
     "transcription": {
         "model": "large-v3-turbo",
@@ -77,6 +98,7 @@ DEFAULTS: dict = {
     "render": {
         "encoder": "auto",  # auto | nvenc | x264
         "crf": 20,
+        "long_resolution": "original",  # Modo Largo: "original" | "1080p"
     },
 }
 

@@ -69,10 +69,9 @@ def test_safe_position_avoids_tiktok_ui():
 
 
 def test_build_ass_structure():
-    phrases = st.build_phrases(_words("hola chicos bienvenidos"), {})
-    ass = st.build_ass(phrases, {"font": "Nunito Black", "pos_y": 1100})
+    ass = st.build_ass(_words("hola chicos bienvenidos"), {"font": "Nunito Black", "pos_y": 1100})
     assert "PlayResX: 1080" in ass and "PlayResY: 1920" in ass
-    assert "Style: Frase,Nunito Black," in ass
+    assert "Style: Sub,Nunito Black," in ass
     assert ass.count("Dialogue:") == 1
     assert "\\pos(510,1100)" in ass
 
@@ -82,7 +81,63 @@ def test_ass_escapes_braces():
 
 
 def test_srt_numbering():
-    phrases = st.build_phrases(_words("uno dos tres", gap_at=None) + [Word("cuatro", 4, 4.5)], {})
-    srt = st.build_srt(phrases, {})
+    srt = st.build_srt(_words("uno dos tres", gap_at=None) + [Word("cuatro", 4, 4.5)])
     assert srt.startswith("1\n00:00:00,000 --> ")
     assert "\n2\n" in srt
+
+
+def test_resaltado_colors_keywords():
+    words = _words("qué locura de partida")
+    words[1].hl = True
+    ass = st.build_ass(words, {"style": "resaltado", "highlight_color": "#FFE14D", "case": "minusculas"})
+    assert "{\\1c&H4DE1FF&}locura{\\1c&HFFFFFF&}" in ass
+
+
+def test_frase_highlight_only_with_toggle():
+    words = _words("qué locura de partida")
+    words[1].hl = True
+    assert "4DE1FF" not in st.build_ass(words, {"style": "frase"}).split("[Events]")[1]
+    assert "4DE1FF" in st.build_ass(words, {"style": "frase"}, highlight=True).split("[Events]")[1]
+
+
+def test_karaoke_one_event_per_word_with_pop():
+    words = _words("no puede ser")
+    cfg = {"style": "karaoke", "case": "mayusculas", "min_words": 1, "max_words": 3, "max_chars": 18}
+    events = [l for l in st.build_ass(words, cfg).splitlines() if l.startswith("Dialogue:")]
+    assert len(events) == 3
+    assert "\\t(0,80,\\fscx115\\fscy115)" in events[1] and "PUEDE" in events[1]
+    # cada palabra empieza cuando se dice y no se solapan
+    starts = [e.split(",")[1] for e in events]
+    assert starts == sorted(starts)
+
+
+def test_hook_two_layers_sticker():
+    hook = {"text": "una tragedia", "duration": 2.5, "pos_y": 650, "uppercase": True,
+            "outline": 12, "outer": 10, "outline_color": "#E3262E"}
+    ass = st.build_ass(_words("hola"), {}, hook=hook)
+    assert "Dialogue: 0,0:00:00.00,0:00:02.50,GanchoFondo" in ass
+    assert "Dialogue: 1,0:00:00.00,0:00:02.50,Gancho," in ass
+    assert "UNA TRAGEDIA" in ass
+    # contorno exterior más grueso que el rojo; ambos en cursiva (-1)
+    fondo = next(l for l in ass.splitlines() if l.startswith("Style: GanchoFondo"))
+    rojo = next(l for l in ass.splitlines() if l.startswith("Style: Gancho,"))
+    assert float(fondo.split(",")[16]) > float(rojo.split(",")[16])
+    assert rojo.split(",")[5] == "&H002E26E3"
+    assert fondo.split(",")[8] == rojo.split(",")[8] == "-1"
+
+
+def test_hook_whole_clip_and_line_break():
+    hook = {"text": "una|tragedia", "duration": 0}
+    ass = st.build_ass([], {}, hook=hook, duration=42.0)
+    assert "0:00:42.00" in ass and "UNA\\NTRAGEDIA" in ass
+
+
+def test_long_mode_scales_to_resolution():
+    ass = st.build_ass(_words("hola chicos"), {"font_size": 54, "pos_y": 960}, 3840, 2160, short=False)
+    assert "PlayResX: 3840" in ass
+    assert ",108," in next(l for l in ass.splitlines() if l.startswith("Style: Sub"))
+
+
+def test_subtitles_can_be_hidden_but_hook_kept():
+    ass = st.build_ass(_words("hola"), {}, hook={"text": "ojo"}, show_subtitles=False)
+    assert "Sub,," not in ass and "OJO" in ass

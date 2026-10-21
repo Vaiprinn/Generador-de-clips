@@ -7,8 +7,8 @@ demucs>=4.0
 whisperx>=3.1
 
 # Botón "autodetectar facecam"
-mediapipe>=0.10
-opencv-python>=4.8
+mediapipe>=0.10  # opcional: si no trae la API clásica se usa OpenCV
+opencv-python>=4.8,<5  # detector de caras Haar (suficiente por sí solo)
 
 # LLM opcional (claves en .env)
 anthropic>=0.40

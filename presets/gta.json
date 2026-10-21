@@ -17,7 +17,11 @@
     "facecam_radius": 28,
     "facecam_shadow": true,
     "gameplay_offset": 0.0,
-    "gameplay_zoom": 1.0
+    "gameplay_offset_y": 0.0,
+    "gameplay_zoom": 1.0,
+    "split_ratio": 0.42,
+    "blur_strength": 20,
+    "blur_fg_y": 960
   },
   "subtitles": {
     "style": "frase",
@@ -35,7 +39,23 @@
     "max_chars": 24,
     "pos_y": 1100,
     "fade_ms": 60,
-    "highlight_color": "#FFE14D"
+    "highlight_color": "#FFE14D",
+    "active_color": "#39E75F",
+    "pop_scale": 115
+  },
+  "hook": {
+    "text": "",
+    "font": "Montserrat Black",
+    "font_size": 120,
+    "fill": "#FFFFFF",
+    "outline_color": "#E3262E",
+    "outline": 12,
+    "outer_color": "#FFFFFF",
+    "outer": 10,
+    "uppercase": true,
+    "duration": 2.5,
+    "pos_y": 0,
+    "tilt": 0
   },
   "transcription": {
     "model": "large-v3-turbo",
@@ -64,6 +84,7 @@
   },
   "render": {
     "encoder": "auto",
-    "crf": 20
+    "crf": 20,
+    "long_resolution": "original"
   }
 }

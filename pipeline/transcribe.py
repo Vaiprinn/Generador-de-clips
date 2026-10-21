@@ -23,6 +23,7 @@ class Word:
     start: float
     end: float
     prob: float = 1.0
+    hl: bool = False  # palabra clave resaltada
 
 
 def words_to_json(words: list[Word]) -> list[dict]:
@@ -30,7 +31,10 @@ def words_to_json(words: list[Word]) -> list[dict]:
 
 
 def words_from_json(data: list[dict]) -> list[Word]:
-    return [Word(d["text"], float(d["start"]), float(d["end"]), float(d.get("prob", 1.0))) for d in data]
+    return [
+        Word(str(d["text"]), float(d["start"]), float(d["end"]), float(d.get("prob", 1.0)), bool(d.get("hl", False)))
+        for d in data
+    ]
 
 
 def _add_cuda_dll_dirs() -> None:
