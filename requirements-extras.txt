@@ -1,0 +1,12 @@
+# Extras opcionales de ClipForge. Ninguno es necesario para usar la app.
+
+# Interruptor «Aislar voz» (htdemucs, solo "vocals"; instala PyTorch, ~2 GB)
+demucs>=4.0
+
+# Botón "autodetectar facecam"
+mediapipe>=0.10  # opcional: si no trae la API clásica se usa OpenCV
+opencv-python>=4.8,<5  # detector de caras Haar (suficiente por sí solo)
+
+# LLM opcional (claves en .env). Ollama no necesita paquete: se usa su API HTTP local.
+anthropic>=2.0
+openai>=1.50

@@ -1,0 +1,131 @@
+{
+  "name": "gta",
+  "mode": "short",
+  "handle": "@tuhandle",
+  "layout": {
+    "type": "facecam_esquina",
+    "facecam_rect": [
+      0.0,
+      0.0,
+      0.25,
+      0.25
+    ],
+    "facecam_position": "top-right",
+    "facecam_width": 0.6,
+    "facecam_y": 200,
+    "facecam_margin": 40,
+    "facecam_radius": 28,
+    "facecam_shadow": true,
+    "gameplay_offset": 0.0,
+    "gameplay_offset_y": 0.0,
+    "gameplay_zoom": 1.0,
+    "split_ratio": 0.42,
+    "blur_strength": 20,
+    "blur_fg_y": 960
+  },
+  "subtitles": {
+    "style": "frase",
+    "font": "Nunito Black",
+    "font_size": 72,
+    "primary_color": "#FFFFFF",
+    "outline_color": "#000000",
+    "shadow_color": "#000000",
+    "outline": 4,
+    "shadow": 3,
+    "case": "original",
+    "strip_punctuation": true,
+    "min_words": 3,
+    "max_words": 5,
+    "max_chars": 24,
+    "pos_y": 1100,
+    "fade_ms": 60,
+    "highlight_color": "#FFE14D",
+    "active_color": "#39E75F",
+    "pop_scale": 115,
+    "animation": "pop"
+  },
+  "hook": {
+    "text": "",
+    "font": "Montserrat Black",
+    "font_size": 120,
+    "fill": "#FFFFFF",
+    "outline_color": "#E3262E",
+    "outline": 12,
+    "outer_color": "#FFFFFF",
+    "outer": 10,
+    "uppercase": true,
+    "duration": 2.5,
+    "pos_y": 0,
+    "tilt": 0
+  },
+  "silences": {
+    "source": "audio",
+    "threshold_db": -35,
+    "min_duration": 0.6,
+    "padding": 0.15
+  },
+  "zoom": {
+    "on_keywords": true,
+    "on_shouts": true,
+    "amount": 1.15,
+    "shout_db": 8,
+    "min_gap": 2.0
+  },
+  "sfx": {
+    "on_zoom": "boom.wav",
+    "on_hook": "whoosh.wav",
+    "on_cut": "",
+    "volume": 0.7
+  },
+  "progress_bar": {
+    "color": "#FFE14D",
+    "height": 10,
+    "position": "arriba"
+  },
+  "watermark": {
+    "position": "centro-izq",
+    "opacity": 55,
+    "font_size": 42,
+    "color": "#FFFFFF"
+  },
+  "llm": {
+    "provider": "ninguno",
+    "ollama_model": "gemma4",
+    "claude_model": "claude-opus-5-5",
+    "openai_model": "gpt-5-mini",
+    "correct_text": true,
+    "pick_keywords": true,
+    "propose_hook": true,
+    "metadata": true
+  },
+  "transcription": {
+    "model": "large-v3-turbo",
+    "language": "es",
+    "device": "auto",
+    "glossary": "GTA, GTA Online, Los Santos, Blaine County, Vinewood, Paleto Bay, Sandy Shores, Franklin, Michael, Trevor, Lamar, Lester, LSPD, Oppressor, Kuruma, Cayo Perico, golpe, atraco, cinco estrellas",
+    "reuse_cache": true
+  },
+  "audio": {
+    "transcribe_track": 0,
+    "output_track": "0"
+  },
+  "toggles": {
+    "subtitles": true,
+    "hook_title": false,
+    "highlight_keywords": false,
+    "cut_silences": false,
+    "auto_zoom": false,
+    "sfx": false,
+    "progress_bar": false,
+    "watermark": false,
+    "isolate_voice": false,
+    "llm_correction": false,
+    "export_srt": true
+  },
+  "render": {
+    "encoder": "auto",
+    "crf": 20,
+    "long_resolution": "original",
+    "engine": "ffmpeg"
+  }
+}
