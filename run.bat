@@ -47,8 +47,36 @@ if "%NEED_INSTALL%"=="1" (
 REM ---- 4. ffmpeg.exe + fuentes -------------------------------------------------
 "%VPY%" tools\setup_assets.py
 
+REM ---- 4b. Motor opcional Remotion (necesita Node.js) ------------------------
+where node >nul 2>nul
+if errorlevel 1 (
+    echo [ClipForge] Motor Remotion: no encuentro Node.js. Es opcional; para usarlo:
+    echo             winget install OpenJS.NodeJS.LTS   y vuelve a abrir run.bat
+) else (
+    set "NEED_NPM=0"
+    if not exist "remotion\node_modules\.clipforge_ok" set "NEED_NPM=1"
+    if exist "remotion\node_modules\.clipforge_ok" (
+        for /f %%R in ('powershell -NoProfile -Command "if ((Get-Item 'remotion\package.json').LastWriteTime -gt (Get-Item 'remotion\node_modules\.clipforge_ok').LastWriteTime) {1} else {0}"') do if "%%R"=="1" set "NEED_NPM=1"
+    )
+    call :remotion_install
+)
+
 REM ---- 5. Lanzar (abre el navegador en http://127.0.0.1:7860) ------------------
 if not exist ".env" if exist ".env.example" copy ".env.example" ".env" >nul
 echo [ClipForge] Abriendo http://127.0.0.1:7860  (cierra esta ventana para salir)
 "%VPY%" app.py
 pause
+
+goto :eof
+
+:remotion_install
+if "%NEED_NPM%"=="0" goto :eof
+echo [ClipForge] Instalando el motor Remotion (una sola vez) ...
+pushd remotion
+call npm ci --no-audit --no-fund || call npm install --no-audit --no-fund
+if not errorlevel 1 (
+    call node node_modules\@remotion\cli\remotion-cli.js browser ensure
+    echo ok> node_modules\.clipforge_ok
+)
+popd
+goto :eof

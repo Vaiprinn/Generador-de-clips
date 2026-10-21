@@ -54,6 +54,7 @@ DEFAULTS: dict = {
         "highlight_color": "#FFE14D",  # palabras clave
         "active_color": "#39E75F",  # karaoke: palabra que se está diciendo
         "pop_scale": 115,  # karaoke: % del "pop"
+        "animation": "pop",  # solo Remotion: entrada de cada frase (pop | slide | fade | none)
     },
     # Título gancho (solo Modo Short). El texto se escribe por vídeo en la revisión.
     "hook": {
@@ -139,6 +140,7 @@ DEFAULTS: dict = {
         "encoder": "auto",  # auto | nvenc | x264
         "crf": 20,
         "long_resolution": "original",  # Modo Largo: "original" | "1080p"
+        "engine": "ffmpeg",  # Short: "ffmpeg" (rápido) | "remotion" (animaciones avanzadas, más lento)
     },
 }
 

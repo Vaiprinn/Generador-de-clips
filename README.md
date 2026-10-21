@@ -6,7 +6,8 @@ Todo offline y gratis: faster-whisper + FFmpeg + Gradio en `http://127.0.0.1:786
 > **Estado: completo (Fase 3)** — Modo Short 1080x1920 (layouts Facecam esquina, Split, Blur y Sin facecam) y
 > Modo Largo 16:9 con .srt; estilos Frase, Resaltado y Karaoke; Título gancho; **editor de subtítulos**
 > para corregir el texto a mano; corte de silencios, auto-zoom, efectos de sonido, barra de progreso,
-> marca de agua, aislar voz (Demucs), LLM opcional (Ollama/Claude/OpenAI) y procesado por lotes.
+> marca de agua, aislar voz (Demucs), LLM opcional (Ollama/Claude/OpenAI), procesado por lotes y
+> motor de render opcional **Remotion** para Shorts con animaciones avanzadas.
 
 ## Arranque rápido (Windows)
 
@@ -16,6 +17,8 @@ Todo offline y gratis: faster-whisper + FFmpeg + Gradio en `http://127.0.0.1:786
    - descarga `ffmpeg.exe`/`ffprobe.exe` en `bin/` y las fuentes libres en `assets/fonts/`,
    - abre el navegador.
 3. El modelo Whisper (`large-v3-turbo`, ~1,6 GB) se descarga en `models/` la primera vez que transcribes.
+4. *(Opcional)* Para el motor **Remotion** instala Node.js (`winget install OpenJS.NodeJS.LTS`) y vuelve a
+   abrir `run.bat`: instala Remotion en `remotion/` y su navegador (~300 MB) una sola vez.
 
 ## Uso
 
@@ -58,7 +61,11 @@ Todo offline y gratis: faster-whisper + FFmpeg + Gradio en `http://127.0.0.1:786
    y hashtags por plataforma (van a `_meta.txt`). Claves en `.env`.
 8. **Lotes**: además de arrastrar vídeos puedes indicar una carpeta (con subcarpetas), saltar los ya
    procesados y obtener un resumen `output/lote_*.csv`. Si un vídeo falla, el lote sigue.
-9. **🚀 Procesar todos**. Los archivos salen en `output/`:
+9. **Motor de render** (solo Shorts): *FFmpeg* (rápido, por defecto) o *Remotion* (animaciones más
+   suaves: las frases entran con pop/deslizamiento/fundido, el gancho rebota, el zoom va con curvas).
+   Usa los mismos ajustes; es bastante más lento (minutos en vez de segundos por clip). Si Node.js o
+   Remotion no están instalados, se usa FFmpeg y se avisa en el registro. El Modo Largo siempre usa FFmpeg.
+10. **🚀 Procesar todos**. Los archivos salen en `output/`:
 
 | Archivo | Contenido |
 |---|---|
@@ -98,11 +105,13 @@ pipeline/
   sfx.py                Efectos de sonido (generación y eventos)
   voice.py              Aislar voz con Demucs (opcional)
   llm.py                Ollama / Claude / OpenAI con salida JSON
+  remotion_render.py    Motor opcional Remotion: vídeo base + props JSON + CLI
   render.py             Comando FFmpeg de un solo pase con progreso
   job.py                Orquestación y medición de tiempos
   presets.py            Presets JSON con valores por defecto
   timing.py             Cronómetro por pasos
 presets/*.json          gta, eafc27, thefinals, minecraft, largo_youtube
+remotion/                Proyecto Remotion (React): composición ClipShort (layouts, subtítulos, gancho…)
 tools/setup_assets.py   Descarga ffmpeg.exe y fuentes
 tests/                  pytest (incluye render real con FFmpeg y palabras simuladas)
 ```
@@ -112,6 +121,8 @@ tests/                  pytest (incluye render real con FFmpeg y palabras simula
 ```bash
 python -m pip install -r requirements.txt pytest
 python -m pytest
+# render real con Remotion (lento): CLIPFORGE_TEST_REMOTION=1 python -m pytest tests/test_remotion.py
+# editar la composición en vivo: cd remotion && npm run studio
 ```
 
 ## Hoja de ruta

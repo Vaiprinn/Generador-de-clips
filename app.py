@@ -15,7 +15,7 @@ from pathlib import Path
 import gradio as gr
 from PIL import Image, ImageDraw
 
-from pipeline import __version__, llm, media, sfx
+from pipeline import __version__, llm, media, remotion_render, sfx
 from pipeline.job import (enrich_with_llm, is_short, llm_enabled, process_video, render_preview_frame,
                           safe_stem, transcribe_video)
 from pipeline.layout import OUT_H, OUT_W, compute_short_layout, gameplay_from_rect
@@ -132,6 +132,8 @@ FIELDS: list[tuple[str, type]] = [
     ("audio.output_track", str),
     ("render.encoder", str),
     ("render.long_resolution", str),
+    ("render.engine", str),
+    ("subtitles.animation", str),
     ("handle", str),
 ]
 KEYS = [k for k, _ in FIELDS]
@@ -764,6 +766,23 @@ def build_ui() -> gr.Blocks:
                         check("llm.pick_keywords", "Elegir palabras clave")
                         check("llm.propose_hook", "Proponer gancho")
                         check("llm.metadata", "Títulos, descripción y hashtags")
+
+                with gr.Tab("Motor de render"):
+                    ok, why = remotion_render.status()
+                    gr.Markdown(
+                        "**FFmpeg** es rápido y vale para todo. **Remotion** (solo Shorts) dibuja los subtítulos, "
+                        "el gancho y el zoom con animaciones más suaves (rebote al entrar, deslizamiento…), pero "
+                        "tarda bastante más. Los dos usan los mismos ajustes del resto de pestañas.\n\n"
+                        + ("✅ " if ok else "⚠️ ") + why
+                    )
+                    with gr.Row():
+                        comps["render.engine"] = gr.Radio([("FFmpeg (rápido)", "ffmpeg"),
+                                                           ("Remotion (animaciones avanzadas)", "remotion")],
+                                                          value=v["render.engine"], label="Motor para los Shorts")
+                        comps["subtitles.animation"] = gr.Radio([("Pop", "pop"), ("Deslizar", "slide"),
+                                                                 ("Fundido", "fade"), ("Ninguna", "none")],
+                                                                value=v["subtitles.animation"],
+                                                                label="Entrada de cada frase (Remotion)")
 
                 with gr.Tab("Transcripción y audio"):
                     with gr.Row():

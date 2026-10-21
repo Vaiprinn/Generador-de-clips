@@ -41,7 +41,8 @@
     "fade_ms": 60,
     "highlight_color": "#FFE14D",
     "active_color": "#39E75F",
-    "pop_scale": 115
+    "pop_scale": 115,
+    "animation": "pop"
   },
   "hook": {
     "text": "",
@@ -124,6 +125,7 @@
   "render": {
     "encoder": "auto",
     "crf": 20,
-    "long_resolution": "original"
+    "long_resolution": "original",
+    "engine": "ffmpeg"
   }
 }

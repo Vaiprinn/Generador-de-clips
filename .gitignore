@@ -10,3 +10,5 @@ work/
 assets/fonts/*.ttf
 assets/fonts/*.otf
 assets/sfx/*.wav
+remotion/node_modules/
+remotion/out/

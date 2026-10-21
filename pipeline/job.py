@@ -275,25 +275,60 @@ def process_video(
         )
         report(_W_RENDER[0], "Renderizando…")
         out_video = output_dir / f"{stem}_{'short' if short else 'largo'}.mp4"
-        with timer.step("6. Render (FFmpeg)"):
-            if short:
-                fg = build_short_filter(layout, preset["layout"], work, ass_path=ass_out if burn else None,
-                                        fonts_dir=FONTS_DIR, opts=opts)
-            else:
-                fg, _ = build_long_filter(info.width, info.height, preset["render"].get("long_resolution", "original"),
-                                          ass_path=ass_out if burn else None, fonts_dir=FONTS_DIR, opts=opts)
-            cmd = build_command(
-                info, fg, out_video, preset["render"], str(preset["audio"]["output_track"]),
-                select_expr=opts.select_expr, sfx_events=sfx_events,
-                sfx_volume=float(preset["sfx"].get("volume", 0.7)), script_dir=work,
-            )
-            lo, hi = _W_RENDER
-            run_ffmpeg(
-                cmd, out_dur, output_dir / f"{stem}_ffmpeg.log",
-                lambda f: report(lo + (hi - lo) * f, f"Renderizando… {f * 100:.0f} %"),
-            )
+        engine = preset["render"].get("engine", "ffmpeg")
+        if engine == "remotion" and not short:
+            notes.append("Remotion solo se usa en el Modo Short; el Modo Largo se renderiza con FFmpeg.")
+            engine = "ffmpeg"
+        if engine == "remotion":
+            from . import remotion_render as rr
 
-        encoder = "h264_nvenc" if "h264_nvenc" in cmd else "libx264"
+            ok, why = rr.status()
+            if not ok:
+                notes.append(f"Remotion no disponible ({why}); se ha usado FFmpeg.")
+                engine = "ffmpeg"
+        lo, hi = _W_RENDER
+        if engine == "remotion":
+            with timer.step("6a. Vídeo base (FFmpeg)"):
+                base = work / "base.mp4"
+                media.run(rr.build_base_command(
+                    info, base, str(preset["audio"]["output_track"]), opts.select_expr, sfx_events,
+                    float(preset["sfx"].get("volume", 0.7)), preset["render"].get("encoder", "auto"), work,
+                ))
+                base_info = media.probe(base)
+            with timer.step("6b. Render (Remotion)"):
+                props = rr.build_props(
+                    base_info, layout, preset["layout"], out_dur, words_out, sub_cfg,
+                    show_subtitles=toggles.get("subtitles", True),
+                    highlight=toggles.get("highlight_keywords", False),
+                    hook=hook, watermark=watermark, progress_bar=opts.progress_bar,
+                    zoom_times=ztimes, zoom_amount=float(preset["zoom"].get("amount", 1.15)),
+                    fonts=rr.font_entries(work),
+                )
+                rr.render(
+                    props, work, out_video, output_dir / f"{stem}_remotion.log",
+                    crf=int(preset["render"].get("crf", 20)) - 2,
+                    progress=lambda f: report(lo + (hi - lo) * f, f"Renderizando con Remotion… {f * 100:.0f} %"),
+                )
+            encoder = "Remotion (h264)"
+        else:
+            with timer.step("6. Render (FFmpeg)"):
+                if short:
+                    fg = build_short_filter(layout, preset["layout"], work, ass_path=ass_out if burn else None,
+                                            fonts_dir=FONTS_DIR, opts=opts)
+                else:
+                    fg, _ = build_long_filter(info.width, info.height, preset["render"].get("long_resolution", "original"),
+                                              ass_path=ass_out if burn else None, fonts_dir=FONTS_DIR, opts=opts)
+                cmd = build_command(
+                    info, fg, out_video, preset["render"], str(preset["audio"]["output_track"]),
+                    select_expr=opts.select_expr, sfx_events=sfx_events,
+                    sfx_volume=float(preset["sfx"].get("volume", 0.7)), script_dir=work,
+                )
+                run_ffmpeg(
+                    cmd, out_dur, output_dir / f"{stem}_ffmpeg.log",
+                    lambda f: report(lo + (hi - lo) * f, f"Renderizando… {f * 100:.0f} %"),
+                )
+            encoder = "h264_nvenc" if "h264_nvenc" in cmd else "libx264"
+
         n_hl = sum(1 for w in words_out if w.hl)
         mode_txt = f"Short | Layout: {preset['layout']['type']}" if short else "Largo"
         cut_txt = (f"{len(segs) - 1} cortes (−{info.duration - out_dur:.1f} s)" if segs else "—")
@@ -357,6 +392,11 @@ def render_preview_frame(
             hook=hook, animate=False, show_subtitles=preset["toggles"].get("subtitles", True),
             watermark=_watermark_cfg(preset),
         ))
+        if short and preset["render"].get("engine") == "remotion":
+            from . import remotion_render as rr
+
+            if rr.status()[0]:
+                return _remotion_preview(src, info, preset, layout, sample, hook, t, out_png, work)
         opts = FilterOptions(
             fps=info.fps_str, duration=max(info.duration, 0.1),  # en la vista previa se ve el fondo de la barra
             progress_bar=preset["progress_bar"] if preset["toggles"].get("progress_bar") else None,
@@ -372,3 +412,26 @@ def render_preview_frame(
         return out_png
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+def _remotion_preview(src, info, preset, layout, sample, hook, t, out_png, work) -> Path:
+    """Vista previa con Remotion: un trozo de 1 s del original y un fotograma ya animado."""
+    from . import remotion_render as rr
+
+    t = max(0.0, min(t, max(info.duration - 1.0, 0.0)))
+    base = work / "base.mp4"
+    media.run([
+        media.ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error", "-ss", f"{t:.3f}", "-i", str(src),
+        "-t", "1", "-map", "0:v:0", "-an", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", str(base),
+    ])
+    base_info = media.probe(base)
+    props = rr.build_props(
+        base_info, layout, preset["layout"], 1.0, sample, preset["subtitles"],
+        show_subtitles=preset["toggles"].get("subtitles", True),
+        highlight=preset["toggles"].get("highlight_keywords", False),
+        hook=hook, watermark=_watermark_cfg(preset),
+        progress_bar=preset["progress_bar"] if preset["toggles"].get("progress_bar") else None,
+        zoom_times=[], zoom_amount=1.0, fonts=rr.font_entries(work),
+    )
+    frame = min(int(float(base_info.fps) * 0.6), props["durationInFrames"] - 1)  # animaciones ya asentadas
+    return rr.still(props, work, out_png, frame)
