@@ -9,3 +9,4 @@ output/
 work/
 assets/fonts/*.ttf
 assets/fonts/*.otf
+assets/sfx/*.wav

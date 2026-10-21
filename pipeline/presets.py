@@ -70,6 +70,47 @@ DEFAULTS: dict = {
         "pos_y": 0,  # 0 = automático (debajo de la facecam)
         "tilt": 0,  # grados de giro
     },
+    # --- Fase 3 ---------------------------------------------------------
+    "silences": {
+        "source": "audio",  # audio (silencedetect en la pista del micro) | palabras (huecos de la transcripción)
+        "threshold_db": -35,
+        "min_duration": 0.6,  # s de silencio para cortar
+        "padding": 0.15,  # s que se dejan a cada lado del corte
+    },
+    "zoom": {
+        "on_keywords": True,
+        "on_shouts": True,
+        "amount": 1.15,  # 1.15 = 115 %
+        "shout_db": 8,  # dB por encima de la mediana para considerar grito
+        "min_gap": 2.0,  # s mínimos entre zooms
+    },
+    "sfx": {
+        "on_zoom": "boom.wav",
+        "on_hook": "whoosh.wav",
+        "on_cut": "",
+        "volume": 0.7,
+    },
+    "progress_bar": {
+        "color": "#FFE14D",
+        "height": 10,
+        "position": "arriba",  # arriba | abajo
+    },
+    "watermark": {
+        "position": "centro-izq",  # arriba-izq | arriba-der | centro-izq | abajo-centro
+        "opacity": 55,
+        "font_size": 42,
+        "color": "#FFFFFF",
+    },
+    "llm": {
+        "provider": "ninguno",  # ninguno | ollama | claude | openai
+        "ollama_model": "gemma4",
+        "claude_model": "claude-opus-5-5",
+        "openai_model": "gpt-5-mini",
+        "correct_text": True,
+        "pick_keywords": True,
+        "propose_hook": True,
+        "metadata": True,  # títulos, descripción y hashtags
+    },
     "transcription": {
         "model": "large-v3-turbo",
         "language": "es",
@@ -84,7 +125,6 @@ DEFAULTS: dict = {
     "toggles": {
         "subtitles": True,
         "hook_title": False,
-        "auto_emojis": False,
         "highlight_keywords": False,
         "cut_silences": False,
         "auto_zoom": False,

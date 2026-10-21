@@ -3,9 +3,10 @@
 App **local** para Windows (Python 3.11) que edita y subtitula vídeos de gaming en español.
 Todo offline y gratis: faster-whisper + FFmpeg + Gradio en `http://127.0.0.1:7860`.
 
-> **Estado: Fase 2** — Modo Short 1080x1920 (layouts Facecam esquina, Split, Blur y Sin facecam) y
-> Modo Largo 16:9 con .srt; estilos Frase, Resaltado y Karaoke; Título gancho; tabla de revisión
-> de la transcripción; editor de presets con marcado por clics y autodetección de facecam.
+> **Estado: Fase 3** — Modo Short 1080x1920 (layouts Facecam esquina, Split, Blur y Sin facecam) y
+> Modo Largo 16:9 con .srt; estilos Frase, Resaltado y Karaoke; Título gancho; **editor de subtítulos**
+> para corregir el texto a mano; corte de silencios, auto-zoom, efectos de sonido, barra de progreso,
+> marca de agua, aislar voz (Demucs), LLM opcional (Ollama/Claude/OpenAI) y procesado por lotes.
 
 ## Arranque rápido (Windows)
 
@@ -37,10 +38,27 @@ Todo offline y gratis: faster-whisper + FFmpeg + Gradio en `http://127.0.0.1:786
 4. **Título gancho** (interruptor, solo Short): cursiva gruesa, relleno blanco, contorno rojo y
    contorno exterior blanco (sticker). Durante N segundos o todo el clip; por defecto debajo de la
    facecam. Usa `|` para partirlo en dos líneas.
-5. **Revisar transcripción** (opcional): *Transcribir para revisar* → corrige palabras y tiempos,
-   marca/desmarca qué resaltar (vacía una celda para borrar la palabra) y escribe el gancho de cada
-   vídeo. Las palabras clave vienen pre-marcadas (glosario, exclamaciones, gritos, números, nombres).
-6. **🚀 Procesar todos**. Los archivos salen en `output/`:
+5. **Revisar y corregir** (opcional): *Transcribir para revisar* y luego:
+   - **Subtítulos (frases)**: cada fila es un subtítulo tal y como sale en pantalla. Cambia el texto
+     para corregir errores (si mantienes el nº de palabras, el karaoke conserva los tiempos exactos;
+     si no, se reparten dentro de la frase), ajusta inicio/fin o vacía el texto para borrarlo.
+   - **Palabras**: ajuste fino de cada palabra, qué se resalta y a qué frase pertenece.
+   - *↻ Reagrupar* rehace las frases con el estilo actual; *🤖 Pasar por el LLM* corrige y propone.
+   - Gancho y textos para publicar (títulos/descripción/hashtags) editables por vídeo.
+6. **Efectos** (cada uno con su interruptor, guardable en el preset):
+   - *Cortar silencios*: por umbral de dB en la pista del micro o por huecos entre palabras; margen
+     ajustable. Corta vídeo y audio en el mismo pase y reajusta los subtítulos.
+   - *Auto-zoom*: punch-in sobre el gameplay en palabras clave y/o gritos (volumen sobre lo normal).
+   - *Efectos de sonido*: al hacer zoom, al salir el gancho y/o en cada corte. Vienen 4 sonidos
+     generados (whoosh, boom, pop, swish); añade los tuyos en `assets/sfx/`.
+   - *Barra de progreso* (arriba/abajo, color y grosor) y *marca de agua* con tu @handle.
+   - *Aislar voz (Demucs)*: limpia la voz antes de transcribir (`pip install demucs`, opcional).
+7. **IA (LLM)** (opcional): Ninguno · Ollama (local, gratis) · Claude API · OpenAI API. Corrige
+   palabras sin tocar tiempos, elige palabras clave, propone el gancho y escribe títulos, descripción
+   y hashtags por plataforma (van a `_meta.txt`). Claves en `.env`.
+8. **Lotes**: además de arrastrar vídeos puedes indicar una carpeta (con subcarpetas), saltar los ya
+   procesados y obtener un resumen `output/lote_*.csv`. Si un vídeo falla, el lote sigue.
+9. **🚀 Procesar todos**. Los archivos salen en `output/`:
 
 | Archivo | Contenido |
 |---|---|
@@ -48,10 +66,11 @@ Todo offline y gratis: faster-whisper + FFmpeg + Gradio en `http://127.0.0.1:786
 | `<nombre>.ass` | Subtítulos quemados (editables con Aegisub) |
 | `<nombre>.srt` | Subtítulos aparte, en líneas más largas y con el texto original (para YouTube) |
 | `<nombre>_words.json` | Palabras con tiempos, probabilidad y marca de resaltado |
-| `<nombre>_meta.txt` | Resumen y **tiempo de cada paso** |
+| `<nombre>_meta.txt` | Resumen, **tiempo de cada paso** y textos para publicar (LLM) |
+| `lote_*.csv` | Resumen del lote (duraciones, cortes, zooms, errores) |
 | `<nombre>_ffmpeg.log` | Comando y log de FFmpeg (para depurar) |
 
-**Modo Largo**: mantiene el 16:9 (resolución original o 1080p), sin facecam, sin gancho y sin cortes;
+**Modo Largo**: mantiene el 16:9 (resolución original o 1080p), sin facecam, sin gancho y sin cortes por defecto;
 subtítulos abajo y `.srt` aparte. La transcripción avanza por bloques de Whisper con progreso.
 
 Cambia cualquier ajuste y pulsa **💾 Guardar preset** (o escribe un nombre nuevo para crear otro).
@@ -73,6 +92,12 @@ pipeline/
   keywords.py           Palabras clave a resaltar (heurística, sin LLM)
   layout.py             Layouts Short (esquina/split/blur) y Largo, filtergraph de FFmpeg
   facedetect.py         Autodetección de la facecam (OpenCV; MediaPipe si trae la API clásica)
+  phrases.py            Edición de subtítulos por frase (texto/tiempos → palabras)
+  silence.py            Corte de silencios y reajuste de tiempos
+  effects.py            Auto-zoom: volumen por palabra, gritos y expresión de zoompan
+  sfx.py                Efectos de sonido (generación y eventos)
+  voice.py              Aislar voz con Demucs (opcional)
+  llm.py                Ollama / Claude / OpenAI con salida JSON
   render.py             Comando FFmpeg de un solo pase con progreso
   job.py                Orquestación y medición de tiempos
   presets.py            Presets JSON con valores por defecto
@@ -92,7 +117,6 @@ python -m pytest
 ## Hoja de ruta
 - ~~Fase 2~~: estilos Resaltado, Karaoke y Título gancho; tabla de revisión; editor de presets;
   Modo Largo con .srt; layouts split/blur. ✅
-- **Fase 3**: corte de silencios, emojis (Twemoji), auto-zoom, efectos de sonido, barra de progreso,
-  marca de agua, Demucs, LLM (Ollama/Claude/OpenAI: corrección, resaltado, gancho, títulos y
-  hashtags), lotes avanzados.
+- ~~Fase 3~~: editor de subtítulos, corte de silencios, auto-zoom, efectos de sonido, barra de
+  progreso, marca de agua, Demucs, LLM y lotes. ✅ (Emojis automáticos descartados.)
 - **Fase 4** (opcional): subida a YouTube, Instagram y TikTok (borrador).

@@ -23,8 +23,8 @@ class StepTimer:
         return time.perf_counter() - self._t0
 
     def summary(self) -> str:
-        lines = [f"  {name:<28} {secs:8.2f} s" for name, secs in self.steps]
-        lines.append(f"  {'TOTAL':<28} {self.total:8.2f} s")
+        lines = [f"  {name:<34} {secs:8.2f} s" for name, secs in self.steps]
+        lines.append(f"  {'TOTAL':<34} {self.total:8.2f} s")
         return "\n".join(lines)
 
     def as_dict(self) -> dict[str, float]:

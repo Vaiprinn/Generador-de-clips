@@ -24,6 +24,7 @@ class Word:
     end: float
     prob: float = 1.0
     hl: bool = False  # palabra clave resaltada
+    grp: int = -1  # nº de frase/subtítulo fijado a mano (-1 = agrupar automáticamente)
 
 
 def words_to_json(words: list[Word]) -> list[dict]:
@@ -32,7 +33,8 @@ def words_to_json(words: list[Word]) -> list[dict]:
 
 def words_from_json(data: list[dict]) -> list[Word]:
     return [
-        Word(str(d["text"]), float(d["start"]), float(d["end"]), float(d.get("prob", 1.0)), bool(d.get("hl", False)))
+        Word(str(d["text"]), float(d["start"]), float(d["end"]), float(d.get("prob", 1.0)),
+             bool(d.get("hl", False)), int(d.get("grp", -1)))
         for d in data
     ]
 
@@ -81,7 +83,7 @@ def _cache_key(src: Path, track: int, cfg: dict) -> str:
     st = src.stat()
     raw = json.dumps(
         [str(src.resolve()), st.st_size, int(st.st_mtime), track,
-         cfg.get("model"), cfg.get("language"), cfg.get("glossary", "")],
+         cfg.get("model"), cfg.get("language"), cfg.get("glossary", ""), bool(cfg.get("isolate"))],
         ensure_ascii=False,
     )
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]

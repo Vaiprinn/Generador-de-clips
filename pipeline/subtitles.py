@@ -111,18 +111,32 @@ def _merge_orphans(groups, max_words, max_chars, gap_split):
     return out
 
 
+def groups_from_ids(words: list[Word]) -> list[list[Word]]:
+    """Agrupa por el campo `grp` (palabras consecutivas con el mismo número)."""
+    groups: list[list[Word]] = []
+    for w in words:
+        if groups and groups[-1][-1].grp == w.grp:
+            groups[-1].append(w)
+        else:
+            groups.append([w])
+    return groups
+
+
 def build_phrases(
     words: list[Word],
     cfg: dict,
     pad: float = 0.15,
     min_dur: float = 0.4,
 ) -> list[Phrase]:
-    groups = group_phrases(
-        words,
-        min_words=int(cfg.get("min_words", 3)),
-        max_words=int(cfg.get("max_words", 6)),
-        max_chars=int(cfg.get("max_chars", 28)),
-    )
+    if words and all(w.grp >= 0 for w in words):
+        groups = groups_from_ids(words)  # frases fijadas en la revisión
+    else:
+        groups = group_phrases(
+            words,
+            min_words=int(cfg.get("min_words", 3)),
+            max_words=int(cfg.get("max_words", 6)),
+            max_chars=int(cfg.get("max_chars", 28)),
+        )
     phrases: list[Phrase] = []
     for i, g in enumerate(groups):
         start = g[0].start
@@ -261,6 +275,7 @@ def build_ass(
     duration: float = 0.0,
     animate: bool = True,
     show_subtitles: bool = True,
+    watermark: dict | None = None,
 ) -> str:
     """Genera el .ass completo. `hook` = config del título gancho con "text" (o None)."""
     style = cfg.get("style", "frase")
@@ -306,6 +321,11 @@ def build_ass(
         hs, he = _hook_events(hook, width, height, duration, animate)
         styles += hs
         events = he + events
+
+    if watermark and (watermark.get("text") or "").strip():
+        ws, we = _watermark_events(watermark, width, height, short, duration)
+        styles.append(ws)
+        events = [we] + events
 
     lines = [
         "[Script Info]",
@@ -367,6 +387,41 @@ def _hook_events(hook: dict, width: int, height: int, duration: float, animate: 
         for layer, st in ((0, "GanchoFondo"), (1, "Gancho"))
     ]
     return styles, events
+
+
+WATERMARK_POSITIONS = ("arriba-izq", "arriba-der", "centro-izq", "abajo-centro")
+
+
+def _watermark_events(cfg: dict, width: int, height: int, short: bool, duration: float):
+    """Marca de agua / @handle semitransparente durante todo el vídeo."""
+    k = _scale(height, short)
+    size = int(cfg.get("font_size", 42) * k)
+    alpha = int(round(255 * (1 - _clamp01(float(cfg.get("opacity", 55)) / 100))))
+    m = int(60 * k)
+    right = SAFE_RIGHT_PX if short else m
+    pos = cfg.get("position", "centro-izq")
+    if pos == "arriba-izq":
+        an, x, y = 7, m, int(110 * k)
+    elif pos == "arriba-der":
+        an, x, y = 9, width - right, int(110 * k)
+    elif pos == "abajo-centro":
+        bottom = height - (SAFE_BOTTOM_PX if short else int(60 * k)) - size
+        an, x, y = 2, (m + width - right) // 2, bottom
+    else:  # centro-izq
+        an, x, y = 4, m, height // 2
+    style = _style_line(
+        "Marca", cfg.get("font", "Nunito Black"), size,
+        ass_color(cfg.get("color", "#FFFFFF"), alpha=alpha),
+        ass_color("#000000", alpha=min(255, alpha + 40)),
+        ass_color("#000000", alpha=0xFF), True, False, round(2 * k, 1), 0, an, 0, 0, 0,
+    )
+    end = duration if duration > 0 else 36000.0
+    text = ass_escape(cfg["text"].strip())
+    return style, f"Dialogue: 0,{ass_time(0)},{ass_time(end)},Marca,,0,0,0,,{{\\pos({x},{y})}}{text}"
+
+
+def _clamp01(v: float) -> float:
+    return max(0.0, min(1.0, v))
 
 
 # ---------------------------------------------------------------- SRT

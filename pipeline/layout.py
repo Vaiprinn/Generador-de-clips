@@ -211,6 +211,46 @@ class FilterGraph:
     video_label: str
 
 
+@dataclass
+class FilterOptions:
+    """Efectos de la Fase 3 que se insertan en el filtergraph."""
+    select_expr: str | None = None  # corte de silencios (tramos que se conservan)
+    zoom_expr: str | None = None  # auto-zoom: expresión z(it) para zoompan
+    fps: str = "30"
+    progress_bar: dict | None = None  # {"color", "height", "position"}
+    duration: float = 0.0  # duración final (tras cortes) para la barra
+
+
+def _source(parts: list[str], opts: FilterOptions | None) -> str:
+    if opts and opts.select_expr:
+        parts.append(f"[0:v]select='{opts.select_expr}',setpts=N/FRAME_RATE/TB[src]")
+        return "[src]"
+    return "[0:v]"
+
+
+def _zoom(opts: FilterOptions | None, w: int, h: int) -> str:
+    if opts and opts.zoom_expr:
+        from .effects import zoompan_filter
+
+        return "," + zoompan_filter(opts.zoom_expr, w, h, opts.fps)
+    return ""
+
+
+def _progress_bar(parts: list[str], last: str, opts: FilterOptions | None, w: int, h: int) -> str:
+    if not opts or not opts.progress_bar or opts.duration <= 0:
+        return last
+    from .subtitles import parse_color
+
+    cfg = opts.progress_bar
+    bh = max(2, int(cfg.get("height", 10)))
+    y = h - bh if cfg.get("position", "arriba") == "abajo" else 0
+    r, g, b = parse_color(cfg.get("color", "#FFE14D"))
+    parts.append(f"{last}drawbox=x=0:y={y}:w={w}:h={bh}:color=black@0.35:t=fill[pb0]")
+    parts.append(f"color=c=0x{r:02X}{g:02X}{b:02X}:s={w}x{bh}:r={opts.fps}[pbc]")
+    parts.append(f"[pb0][pbc]overlay=x='-w+W*t/{opts.duration:.3f}':y={y}:shortest=1[pb1]")
+    return "[pb1]"
+
+
 def _subs_and_finish(parts: list[str], last: str, ass_path: Path | None, fonts_dir: Path | None) -> str:
     if ass_path is not None:
         opts = f"filename={escape_filter_path(ass_path)}"
@@ -229,34 +269,38 @@ def build_short_filter(
     ass_path: Path | None = None,
     fonts_dir: Path | None = None,
     first_input: int = 1,
+    opts: FilterOptions | None = None,
 ) -> FilterGraph:
     """Construye el filtergraph de un solo pase. La entrada 0 es el vídeo original."""
     parts: list[str] = []
     inputs: list[list[str]] = []
     gp, dst = layout.gameplay, layout.gameplay_dst
     scale = "flags=lanczos,setsar=1"
+    src0 = _source(parts, opts)
+    zoom = _zoom(opts, dst.w, dst.h)
 
     if layout.type == "blur":
         bg = layout.background
         blur = int(_clamp(float(cfg.get("blur_strength", 20)), 0, 60))
         # Desenfoque barato: se reduce, se difumina y se vuelve a ampliar.
         blur_f = f",boxblur={max(1, blur // 2)}:2" if blur else ""
-        parts.append("[0:v]split=2[bg_in][fg_in]")
+        parts.append(f"{src0}split=2[bg_in][fg_in]")
         parts.append(
             f"[bg_in]{bg.as_crop()},scale=270:480{blur_f},scale={OUT_W}:{OUT_H}:flags=bicubic,"
             f"setsar=1,eq=brightness=-0.06,format=yuv420p[bg0]"
         )
-        parts.append(f"[fg_in]{gp.as_crop()},scale={dst.w}:{dst.h}:{scale}[fg0]")
+        parts.append(f"[fg_in]{gp.as_crop()},scale={dst.w}:{dst.h}:{scale}{zoom}[fg0]")
         parts.append(f"[bg0][fg0]overlay=0:{dst.y}[bg2]")
-        return FilterGraph(_subs_and_finish(parts, "[bg2]", ass_path, fonts_dir), inputs, "[vout]")
+        last = _progress_bar(parts, "[bg2]", opts, OUT_W, OUT_H)
+        return FilterGraph(_subs_and_finish(parts, last, ass_path, fonts_dir), inputs, "[vout]")
 
     has_fc = layout.facecam_src is not None
-    src_v = "[0:v]"
+    src_v = src0
     if has_fc:
-        parts.append("[0:v]split=2[gp_in][fc_in]")
+        parts.append(f"{src0}split=2[gp_in][fc_in]")
         src_v = "[gp_in]"
     pad = f",pad={OUT_W}:{OUT_H}:{dst.x}:{dst.y}" if (dst.w, dst.h) != (OUT_W, OUT_H) else ""
-    parts.append(f"{src_v}{gp.as_crop()},scale={dst.w}:{dst.h}:{scale}{pad},format=yuv420p[bg0]")
+    parts.append(f"{src_v}{gp.as_crop()},scale={dst.w}:{dst.h}:{scale}{zoom}{pad},format=yuv420p[bg0]")
     last = "[bg0]"
 
     if has_fc and layout.type == "split":
@@ -286,6 +330,7 @@ def build_short_filter(
         parts.append(f"{last}[fc1]overlay={fdst.x}:{fdst.y}:shortest=1[bg2]")
         last = "[bg2]"
 
+    last = _progress_bar(parts, last, opts, OUT_W, OUT_H)
     return FilterGraph(_subs_and_finish(parts, last, ass_path, fonts_dir), inputs, "[vout]")
 
 
@@ -300,8 +345,13 @@ def long_output_size(src_w: int, src_h: int, resolution: str = "original") -> tu
 def build_long_filter(
     src_w: int, src_h: int, resolution: str,
     ass_path: Path | None = None, fonts_dir: Path | None = None,
+    opts: FilterOptions | None = None,
 ) -> tuple[FilterGraph, tuple[int, int]]:
     """Modo Largo: se mantiene el 16:9 (o la resolución original) y se queman los subtítulos."""
     w, h = long_output_size(src_w, src_h, resolution)
-    first = f"[0:v]scale={w}:{h}:flags=lanczos,setsar=1[base]" if (w, h) != (src_w, src_h) else "[0:v]setsar=1[base]"
-    return FilterGraph(_subs_and_finish([first], "[base]", ass_path, fonts_dir), [], "[vout]"), (w, h)
+    parts: list[str] = []
+    src = _source(parts, opts)
+    scale = f"scale={w}:{h}:flags=lanczos," if (w, h) != (src_w, src_h) else ""
+    parts.append(f"{src}{scale}setsar=1{_zoom(opts, w, h)}[base]")
+    last = _progress_bar(parts, "[base]", opts, w, h)
+    return FilterGraph(_subs_and_finish(parts, last, ass_path, fonts_dir), [], "[vout]"), (w, h)
