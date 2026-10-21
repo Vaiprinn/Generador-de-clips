@@ -3,7 +3,7 @@
 App **local** para Windows (Python 3.11) que edita y subtitula vídeos de gaming en español.
 Todo offline y gratis: faster-whisper + FFmpeg + Gradio en `http://127.0.0.1:7860`.
 
-> **Estado: Fase 3** — Modo Short 1080x1920 (layouts Facecam esquina, Split, Blur y Sin facecam) y
+> **Estado: completo (Fase 3)** — Modo Short 1080x1920 (layouts Facecam esquina, Split, Blur y Sin facecam) y
 > Modo Largo 16:9 con .srt; estilos Frase, Resaltado y Karaoke; Título gancho; **editor de subtítulos**
 > para corregir el texto a mano; corte de silencios, auto-zoom, efectos de sonido, barra de progreso,
 > marca de agua, aislar voz (Demucs), LLM opcional (Ollama/Claude/OpenAI) y procesado por lotes.
@@ -119,4 +119,5 @@ python -m pytest
   Modo Largo con .srt; layouts split/blur. ✅
 - ~~Fase 3~~: editor de subtítulos, corte de silencios, auto-zoom, efectos de sonido, barra de
   progreso, marca de agua, Demucs, LLM y lotes. ✅ (Emojis automáticos descartados.)
-- **Fase 4** (opcional): subida a YouTube, Instagram y TikTok (borrador).
+- ~~Fase 4~~: subida automática a redes, descartada: la publicación se hace a mano con los
+  archivos de `output/` (vídeo, `.srt` y textos de `_meta.txt`).
