@@ -1,0 +1,11 @@
+# ClipForge — dependencias base (Fase 1). Python 3.11.
+gradio>=5.0,<7
+faster-whisper>=1.1.1
+Pillow>=10.0
+python-dotenv>=1.0
+
+# ---------------------------------------------------------------------------
+# Extras opcionales (fases siguientes). Instálalos con:
+#   .venv\Scripts\python -m pip install -r requirements-extras.txt
+# GPU NVIDIA para Whisper (run.bat lo instala solo si detecta nvidia-smi):
+#   .venv\Scripts\python -m pip install -r requirements-gpu.txt

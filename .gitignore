@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+bin/
+models/
+output/
+work/
+assets/fonts/*.ttf
+assets/fonts/*.otf

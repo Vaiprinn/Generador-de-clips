@@ -1,0 +1,16 @@
+# Extras opcionales de ClipForge (Fases 2-4). Ninguno es necesario para la Fase 1.
+
+# Aislar voz (htdemucs, solo "vocals")
+demucs>=4.0
+
+# Alineación fina de palabras (wav2vec2 de español)
+whisperx>=3.1
+
+# Botón "autodetectar facecam"
+mediapipe>=0.10
+opencv-python>=4.8
+
+# LLM opcional (claves en .env)
+anthropic>=0.40
+openai>=1.50
+ollama>=0.3

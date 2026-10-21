@@ -1,0 +1,69 @@
+{
+  "name": "gta",
+  "mode": "short",
+  "handle": "@tuhandle",
+  "layout": {
+    "type": "facecam_esquina",
+    "facecam_rect": [
+      0.0,
+      0.0,
+      0.25,
+      0.25
+    ],
+    "facecam_position": "top-right",
+    "facecam_width": 0.6,
+    "facecam_y": 200,
+    "facecam_margin": 40,
+    "facecam_radius": 28,
+    "facecam_shadow": true,
+    "gameplay_offset": 0.0,
+    "gameplay_zoom": 1.0
+  },
+  "subtitles": {
+    "style": "frase",
+    "font": "Nunito Black",
+    "font_size": 72,
+    "primary_color": "#FFFFFF",
+    "outline_color": "#000000",
+    "shadow_color": "#000000",
+    "outline": 4,
+    "shadow": 3,
+    "case": "original",
+    "strip_punctuation": true,
+    "min_words": 3,
+    "max_words": 5,
+    "max_chars": 24,
+    "pos_y": 1100,
+    "fade_ms": 60,
+    "highlight_color": "#FFE14D"
+  },
+  "transcription": {
+    "model": "large-v3-turbo",
+    "language": "es",
+    "device": "auto",
+    "glossary": "GTA, GTA Online, Los Santos, Blaine County, Vinewood, Paleto Bay, Sandy Shores, Franklin, Michael, Trevor, Lamar, Lester, LSPD, Oppressor, Kuruma, Cayo Perico, golpe, atraco, cinco estrellas",
+    "reuse_cache": true
+  },
+  "audio": {
+    "transcribe_track": 0,
+    "output_track": "0"
+  },
+  "toggles": {
+    "subtitles": true,
+    "hook_title": false,
+    "auto_emojis": false,
+    "highlight_keywords": false,
+    "cut_silences": false,
+    "auto_zoom": false,
+    "sfx": false,
+    "progress_bar": false,
+    "watermark": false,
+    "isolate_voice": false,
+    "llm_correction": false,
+    "export_srt": true
+  },
+  "render": {
+    "encoder": "auto",
+    "crf": 20
+  }
+}

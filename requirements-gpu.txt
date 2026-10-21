@@ -1,0 +1,4 @@
+# Librerías CUDA 12 para faster-whisper / CTranslate2 en GPU NVIDIA.
+# (No hace falta instalar el CUDA Toolkit completo.)
+nvidia-cublas-cu12
+nvidia-cudnn-cu12>=9,<10
