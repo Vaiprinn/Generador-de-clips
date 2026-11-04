@@ -20,6 +20,31 @@ Todo offline y gratis: faster-whisper + FFmpeg + Gradio en `http://127.0.0.1:786
 4. *(Opcional)* Para el motor **Remotion** instala Node.js (`winget install OpenJS.NodeJS.LTS`) y vuelve a
    abrir `run.bat`: instala Remotion en `remotion/` y su navegador (~300 MB) una sola vez.
 
+## Buscar momentos en un directo largo (VOD)
+
+Arriba del todo, **🔎 Buscar momentos en un directo largo**: escribe la ruta del directo (1-4 h) y pulsa
+**Buscar momentos**.
+
+1. Mide sobre todo el vídeo el **volumen del micro** (gritos, risas), los **cambios de escena** y, si
+   das el archivo, los **mensajes de chat por minuto** (JSON de `chat-downloader` o `.txt` con
+   `hh:mm:ss` al principio de cada línea).
+2. Puntúa cada tramo de 30 s y se queda con los mejores.
+3. Transcribe con Whisper **solo esos tramos ± 1 min** (sin GPU NVIDIA, transcribir 3 h en CPU
+   tardaría horas) o el directo entero si eliges *Todo*. Las palabras clave («no puede ser», «mira
+   esto», `wasted`, el glosario…) suman puntos.
+4. La IA elegida (Claude, Ollama u OpenAI) lee esos tramos y devuelve los clips de 20-60 s con gancho,
+   título y hashtags. Sin IA, cada clip se centra en el pico de volumen.
+5. Revisa la tabla (desmarca ✔, corrige inicio/fin/gancho/título) y pulsa **🎬 Renderizar los
+   marcados**: cada clip se corta del directo y pasa por el editor normal con los ajustes de abajo
+   (formato, layout, subtítulos, gancho, efectos).
+
+Todo queda en `output/<fecha>_<directo>/`: `candidatos.json`, `palabras.json` y `clips/` con los
+vídeos y su `_meta.txt`. Los ajustes finos (pesos de cada señal, duración, palabras clave) van en la
+sección `"highlights"` del preset (valores por defecto en `pipeline/highlights.py`).
+
+> Consejo: graba en OBS el micro en una pista aparte. Con una sola pista, el volumen del juego
+> (explosiones de GTA) también cuenta como «grito».
+
 ## Uso
 
 1. Arrastra uno o varios vídeos, elige **preset** (`gta`, `eafc27`, `thefinals`, `minecraft`,
@@ -105,6 +130,7 @@ pipeline/
   sfx.py                Efectos de sonido (generación y eventos)
   voice.py              Aislar voz con Demucs (opcional)
   llm.py                Ollama / Claude / OpenAI con salida JSON
+  highlights.py         Buscar momentos en VODs largos: señales, puntuación, IA y corte de clips
   remotion_render.py    Motor opcional Remotion: vídeo base + props JSON + CLI
   render.py             Comando FFmpeg de un solo pase con progreso
   job.py                Orquestación y medición de tiempos
