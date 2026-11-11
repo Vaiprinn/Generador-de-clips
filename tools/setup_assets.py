@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from pipeline.paths import BIN_DIR, FONTS_DIR  # noqa: E402
+from pipeline.paths import BIN_DIR, FONTS_DIR, MODELS_DIR  # noqa: E402
 
 FFMPEG_URLS = [
     "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
@@ -101,7 +101,25 @@ def setup_fonts(force: bool = False) -> None:
             print(f"[fuentes] AVISO: falta {fname}; se usará una fuente del sistema.")
 
 
+def setup_face_model(force: bool = False) -> None:
+    from pipeline.facedetect import YUNET_FILE, YUNET_URL
+
+    dst = MODELS_DIR / YUNET_FILE
+    if dst.exists() and not force:
+        return
+    try:
+        data = _download(YUNET_URL)
+        if len(data) < 100_000:
+            raise ValueError("descarga incompleta")
+        MODELS_DIR.mkdir(parents=True, exist_ok=True)
+        dst.write_bytes(data)
+        print(f"[caras] OK → models/{YUNET_FILE}")
+    except Exception as e:
+        print(f"[caras] AVISO: no se pudo descargar el detector de caras ({e}); se reintentará al autodetectar.")
+
+
 if __name__ == "__main__":
     force = "--force" in sys.argv
     setup_ffmpeg(force)
     setup_fonts(force)
+    setup_face_model(force)

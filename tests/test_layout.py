@@ -87,6 +87,28 @@ def test_gameplay_from_rect_roundtrip():
     assert abs(zoom - 1.5) < 0.02 and abs(ox - 0.5) < 0.03 and abs(oy) < 0.03
 
 
+def test_gameplay_rect_whole_frame_fits_with_blur(tmp_path):
+    cfg = {"type": "facecam_esquina", "gameplay_rect": [0, 0, 1, 1], "facecam_rect": [0.79, 0, 0.21, 0.32]}
+    lay = L.compute_short_layout(1920, 1080, cfg)
+    assert lay.fit and (lay.gameplay.w, lay.gameplay.h) == (1920, 1080)
+    fg = L.build_short_filter(lay, {}, tmp_path)
+    assert "[gpbg][gpfg]overlay" in fg.graph and "boxblur" in fg.graph
+
+
+def test_gameplay_rect_with_screen_shape_fills():
+    # Recuadro 9:16 marcado a mano: llena la pantalla sin bordes
+    frac = [0.3, 0, 608 / 1920, 1.0]
+    lay = L.compute_short_layout(1920, 1080, {"type": "sin_facecam", "gameplay_rect": frac})
+    assert not lay.fit
+    assert abs(lay.gameplay.x - 0.3 * 1920) <= 2 and abs(lay.gameplay.w / lay.gameplay.h - 1080 / 1920) < 0.01
+
+
+def test_split_gameplay_rect_uses_bottom_aspect():
+    cfg = {"type": "split", "split_ratio": 0.42, "gameplay_rect": [0, 0, 1, 1]}
+    assert abs(L.gameplay_dst_aspect(1920, 1080, cfg) - 1080 / (1920 - 806)) < 0.01
+    assert L.compute_short_layout(1920, 1080, cfg).fit
+
+
 def test_hook_y_below_facecam():
     lay = L.compute_short_layout(1920, 1080, {"type": "facecam_esquina", "facecam_y": 200, "facecam_width": 0.6})
     assert lay.facecam_dst.bottom < lay.hook_y < 1100

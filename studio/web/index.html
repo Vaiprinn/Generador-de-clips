@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="ClipForge">
+  <meta name="theme-color" content="#0E0F11">
+  <link rel="apple-touch-icon" href="/static/icon-180.png">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <title>ClipForge Studio</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script>window.CF_TOKEN = "__TOKEN__"; window.CF_PHONE = __PHONE__;</script>
+</head>
+<body>
+  <header class="topbar">
+    <button class="brand" id="go-home" title="Inicio">
+      <span class="logo">▶</span>
+      <span class="brand-text"><b>ClipForge</b> Studio</span>
+    </button>
+    <nav class="crumbs" id="crumbs"></nav>
+    <div class="top-actions">
+      <label class="field-inline" title="El juego decide el estilo de los subtítulos, el gancho y el encuadre">
+        <span>Juego</span>
+        <select id="preset-select"></select>
+      </label>
+      <button class="btn ghost" id="open-style">🎨<span class="lbl"> Mi estilo</span></button>
+      <button class="btn ghost" id="open-phone" title="Usar ClipForge desde el móvil">📱</button>
+      <button class="btn ghost" id="open-output" title="Abrir la carpeta de resultados">📂</button>
+    </div>
+  </header>
+
+  <main id="view" class="view"></main>
+
+  <!-- Panel lateral de estilo -->
+  <aside class="drawer" id="style-drawer" aria-hidden="true">
+    <div class="drawer-head">
+      <div>
+        <h2>🎨 Mi estilo</h2>
+        <p class="muted" id="style-sub">Cómo salen tus Shorts. Se guarda por juego.</p>
+      </div>
+      <button class="icon-btn" id="close-style" title="Cerrar">✕</button>
+    </div>
+    <div class="drawer-body" id="style-body"></div>
+  </aside>
+  <div class="scrim" id="scrim"></div>
+
+  <!-- Progreso de trabajos largos -->
+  <div class="modal" id="job-modal" aria-hidden="true">
+    <div class="modal-card">
+      <div class="spinner"></div>
+      <h2 id="job-title">Trabajando…</h2>
+      <p class="muted" id="job-msg">Empezando…</p>
+      <div class="bar"><div id="job-bar"></div></div>
+      <div class="job-foot"><span id="job-pct">0 %</span><span id="job-time">0:00</span></div>
+      <p class="tip" id="job-tip"></p>
+    </div>
+  </div>
+
+  <!-- Elegir vídeo (móvil o navegador: sin diálogo de Windows) -->
+  <div class="modal" id="pick-modal" aria-hidden="true">
+    <div class="modal-card pick-card">
+      <div class="row" style="justify-content:space-between"><h2>Elegir vídeo</h2><button class="icon-btn" id="pick-close">✕</button></div>
+      <label class="btn primary upload-btn">📤 Subir un vídeo de este dispositivo<input type="file" id="pick-file" accept="video/*,.mkv,.flv,.ts" hidden></label>
+      <div class="bar hidden" id="up-bar"><div></div></div>
+      <p class="muted small" id="up-msg"></p>
+      <h3 class="small muted" style="margin:14px 0 6px">O uno que ya está en tu PC</h3>
+      <div class="pick-list" id="pick-list"><div class="muted">Cargando…</div></div>
+    </div>
+  </div>
+
+  <!-- Usar desde el móvil -->
+  <div class="modal" id="phone-modal" aria-hidden="true">
+    <div class="modal-card pick-card">
+      <div class="row" style="justify-content:space-between"><h2>📱 ClipForge en tu móvil</h2><button class="icon-btn" id="phone-close">✕</button></div>
+      <label class="row" style="gap:10px;margin:8px 0"><input type="checkbox" id="phone-on"> <b>Permitir abrir Studio desde el móvil</b></label>
+      <p class="muted small">El móvil tiene que estar en la misma Wi-Fi que este PC, con Studio abierto aquí. Solo entra quien escanee este código.</p>
+      <div id="phone-body"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script src="/static/live.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -137,10 +137,13 @@ def config(preset: dict) -> dict:
 
 
 def fmt_time(t: float) -> str:
-    t = max(0.0, float(t))
+    t = round(max(0.0, float(t)), 1)  # redondear antes: 59.96 → 00:01:00, no 00:00:60
     h, rem = divmod(t, 3600)
     m, s = divmod(rem, 60)
-    return f"{int(h):02d}:{int(m):02d}:{s:04.1f}"
+    sec = f"{s:04.1f}"
+    if sec.endswith(".0"):
+        sec = sec[:-2]  # «00:07:20» en vez de «00:07:20.0»
+    return f"{int(h):02d}:{int(m):02d}:{sec}"
 
 
 def parse_time(text: str | float | int) -> float:
@@ -561,16 +564,30 @@ def vod_out_dir(src: Path, root: Path = OUTPUT_DIR) -> Path:
     return root / f"{day}_{stem}"
 
 
-def find_highlights(
-    src: str | Path,
-    preset: dict,
-    chat_file: str | Path | None = None,
-    progress: ProgressFn | None = None,
-    call: Callable[[str, dict, dict], dict] | None = None,
-    out_root: Path = OUTPUT_DIR,
-) -> HighlightResult:
-    """Analiza un VOD y propone clips. `call` permite inyectar un LLM falso en los tests."""
-    from .job import mic_track, transcribe_video
+@dataclass
+class Signals:
+    """Lo que se mide sobre todo el VOD (lo comparten «momentos» y «episodio de YouTube»)."""
+    info: media.MediaInfo
+    track: int
+    loud: np.ndarray
+    scenes: list[float]
+    chat: list[float]
+    windows: list[Window]
+    notes: list[str] = field(default_factory=list)
+    timings: dict[str, float] = field(default_factory=dict)
+
+
+def _signals_key(src: Path, track: int, what: str, extra: str = "") -> Path:
+    st = src.stat()
+    raw = json.dumps([str(src.resolve()), st.st_size, int(st.st_mtime), track, what, extra, 1])
+    return CACHE_DIR / f"sig_{hashlib.sha1(raw.encode('utf-8')).hexdigest()[:16]}"
+
+
+def analyze_signals(src: str | Path, preset: dict, chat_file: str | Path | None = None,
+                    progress: ProgressFn | None = None) -> Signals:
+    """Volumen, escenas y chat sobre todo el vídeo, y tramos puntuados. Volumen y escenas se guardan
+    en caché: buscar momentos y luego hacer el episodio del mismo directo no vuelve a medirlos."""
+    from .job import mic_track
 
     ensure_dirs()
     report = progress or (lambda f, m: None)
@@ -591,15 +608,25 @@ def find_highlights(
                      "Graba el micro en una pista aparte en OBS para que acierte más.")
 
     t0 = time.perf_counter()
-    loud = loudness_per_second(src, track, info.duration, lambda f, m: report(0.02 + 0.18 * f, m))
+    lk = _signals_key(src, track, "loud").with_suffix(".npy")
+    if lk.exists():
+        loud = np.load(lk)
+    else:
+        loud = loudness_per_second(src, track, info.duration, lambda f, m: report(0.02 + 0.18 * f, m))
+        np.save(lk, loud)
     step("volumen", t0)
 
     scenes: list[float] = []
     if cfg.get("scenes", True):
         t0 = time.perf_counter()
+        sk = _signals_key(src, -1, "scenes", str(cfg["scene_threshold"])).with_suffix(".json")
         try:
-            scenes = scene_changes(src, float(cfg["scene_threshold"]), info.duration,
-                                   lambda f, m: report(0.20 + 0.20 * f, m))
+            if sk.exists():
+                scenes = json.loads(sk.read_text(encoding="utf-8"))
+            else:
+                scenes = scene_changes(src, float(cfg["scene_threshold"]), info.duration,
+                                       lambda f, m: report(0.20 + 0.20 * f, m))
+                sk.write_text(json.dumps(scenes), encoding="utf-8")
         except Exception as e:  # opcional
             notes.append(f"Cambios de escena no disponibles: {e}")
         step("escenas", t0)
@@ -613,8 +640,31 @@ def find_highlights(
         except Exception as e:
             notes.append(f"No se pudo leer el chat: {e}")
 
+    windows = score_windows(make_windows(info.duration, float(cfg["window"])), loud, cfg["weights"], chat, scenes)
+    return Signals(info, track, loud, scenes, chat, windows, notes, timings)
+
+
+def find_highlights(
+    src: str | Path,
+    preset: dict,
+    chat_file: str | Path | None = None,
+    progress: ProgressFn | None = None,
+    call: Callable[[str, dict, dict], dict] | None = None,
+    out_root: Path = OUTPUT_DIR,
+) -> HighlightResult:
+    """Analiza un VOD y propone clips. `call` permite inyectar un LLM falso en los tests."""
+    from .job import transcribe_video
+
+    report = progress or (lambda f, m: None)
+    src = Path(src)
+    cfg = config(preset)
+    sig = analyze_signals(src, preset, chat_file, report)
+    info, track, loud, scenes, chat = sig.info, sig.track, sig.loud, sig.scenes, sig.chat
+    notes, timings, windows = sig.notes, sig.timings, sig.windows
     weights = cfg["weights"]
-    windows = score_windows(make_windows(info.duration, float(cfg["window"])), loud, weights, chat, scenes)
+
+    def step(name: str, t0: float) -> None:
+        timings[name] = round(time.perf_counter() - t0, 1)
 
     mode = cfg.get("transcribe", "auto")
     if mode == "auto":
@@ -654,8 +704,8 @@ def find_highlights(
             log.warning("LLM highlights: %s", e)
             notes.append(f"IA no disponible ({e}); se usan los picos de volumen.")
     else:
-        notes.append("Sin IA: los clips se centran en los picos de volumen (elige Claude/Ollama en ⚙️ Avanzado "
-                     "para que lea lo que dices y escriba gancho y título).")
+        notes.append("Sin IA: los clips se centran en los picos de volumen. Elige una IA (Claude u Ollama) "
+                     "para que lea lo que dices y escriba gancho y título.")
     if not clips:
         clips = clips_from_signals(cands, words, cfg, info.duration)
     step("ia", t0)

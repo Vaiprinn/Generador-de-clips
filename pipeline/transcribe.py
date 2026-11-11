@@ -25,6 +25,7 @@ class Word:
     prob: float = 1.0
     hl: bool = False  # palabra clave resaltada
     grp: int = -1  # nº de frase/subtítulo fijado a mano (-1 = agrupar automáticamente)
+    spk: int = -1  # voz que la dice (0 = la que más habla; -1 = sin detectar)
 
 
 def words_to_json(words: list[Word]) -> list[dict]:
@@ -34,9 +35,51 @@ def words_to_json(words: list[Word]) -> list[dict]:
 def words_from_json(data: list[dict]) -> list[Word]:
     return [
         Word(str(d["text"]), float(d["start"]), float(d["end"]), float(d.get("prob", 1.0)),
-             bool(d.get("hl", False)), int(d.get("grp", -1)))
+             bool(d.get("hl", False)), int(d.get("grp", -1)), int(d.get("spk", -1)))
         for d in data
     ]
+
+
+# Ejemplos de habla por variante: Whisper imita la ortografía y el vocabulario del texto
+# inicial, así que escribe mejor la jerga y los modismos de cada país.
+DIALECT_PROMPTS = {
+    "latam": "Partida en directo, español latinoamericano informal. ¡Qué onda, bro! No manches, está bien chido. "
+             "¿Cómo así, parce? Dale, che, re piola. ¡Uy, qué bacán! gg, clutch, headshot, respawn, lag.",
+    "mx": "Partida en directo, español de México. ¡No mames, wey! ¿Qué onda? Está bien chido, órale, neta, "
+          "qué padre, ahorita. gg, clutch, headshot, respawn, lag.",
+    "co": "Partida en directo, español de Colombia. ¡Qué chimba, parce! ¿Cómo así? Hágale pues, qué nota, "
+          "marica, bacano, de una. gg, clutch, headshot, respawn, lag.",
+    "ar": "Partida en directo, español rioplatense. ¡Che, boludo! Vos tenés que ir, re piola, posta, dale, "
+          "qué quilombo. gg, clutch, headshot, respawn, lag.",
+    "cl": "Partida en directo, español de Chile. ¡Wena po, weón! ¿Cachai? La raja, bacán, al tiro, qué fome. "
+          "gg, clutch, headshot, respawn, lag.",
+    "pe": "Partida en directo, español de Perú. ¡Habla causa! Qué chévere, bacán, pata, al toque, chamba. "
+          "gg, clutch, headshot, respawn, lag.",
+    "ve": "Partida en directo, español de Venezuela. ¡Épale, chamo! Qué molleja, chévere, pana, burda de bueno. "
+          "gg, clutch, headshot, respawn, lag.",
+    "es": "Partida en directo, español de España. ¡Venga, tío! Qué guay, mola mogollón, vale, flipante. "
+          "gg, clutch, headshot, respawn, lag.",
+}
+MAX_REPEATS = 3  # Whisper a veces "alucina" la misma palabra muchas veces seguidas
+
+
+def initial_prompt(cfg: dict) -> str:
+    prompt = DIALECT_PROMPTS.get(cfg.get("dialect", "latam"), DIALECT_PROMPTS["latam"])
+    glossary = (cfg.get("glossary") or "").strip()
+    return f"{prompt} {glossary}." if glossary else prompt
+
+
+def collapse_repeats(words: list[Word], max_run: int = MAX_REPEATS) -> list[Word]:
+    """Quita repeticiones idénticas encadenadas más allá de `max_run` (alucinaciones típicas)."""
+    out: list[Word] = []
+    run = 0
+    for w in words:
+        key = w.text.lower().strip(".,;:¡!¿?")
+        prev = out[-1].text.lower().strip(".,;:¡!¿?") if out else None
+        run = run + 1 if key == prev else 1
+        if run <= max_run:
+            out.append(w)
+    return out
 
 
 def _add_cuda_dll_dirs() -> None:
@@ -83,7 +126,8 @@ def _cache_key(src: Path, track: int, cfg: dict) -> str:
     st = src.stat()
     raw = json.dumps(
         [str(src.resolve()), st.st_size, int(st.st_mtime), track,
-         cfg.get("model"), cfg.get("language"), cfg.get("glossary", ""), bool(cfg.get("isolate"))],
+         cfg.get("model"), cfg.get("language"), cfg.get("glossary", ""), bool(cfg.get("isolate")),
+         cfg.get("dialect", "latam"), 2],  # 2 = versión del ajuste de transcripción
         ensure_ascii=False,
     )
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
@@ -104,7 +148,7 @@ def transcribe(
         devices = ["cuda", "cpu"]  # si CUDA falla, respaldo en CPU
 
     glossary = (cfg.get("glossary") or "").strip()
-    prompt = f"Vídeo de gaming en español. Vocabulario: {glossary}." if glossary else None
+    prompt = initial_prompt(cfg)
 
     last_err: Exception | None = None
     for device in devices:
@@ -119,8 +163,10 @@ def transcribe(
                 vad_filter=True,
                 vad_parameters={"min_silence_duration_ms": 500},
                 initial_prompt=prompt,
+                hotwords=glossary or None,
                 beam_size=5,
                 condition_on_previous_text=False,
+                hallucination_silence_threshold=2.0,
             )
             total = duration or info.duration or 1.0
             words: list[Word] = []
@@ -131,7 +177,7 @@ def transcribe(
                         words.append(Word(text, round(w.start, 3), round(w.end, 3), round(w.probability, 3)))
                 if progress:
                     progress(min(seg.end / total, 1.0), f"Transcribiendo… {seg.end:.0f}/{total:.0f} s")
-            return words, device
+            return collapse_repeats(words), device
         except Exception as e:  # p. ej. faltan DLL de CUDA → reintenta en CPU
             last_err = e
             log.warning("Transcripción en %s falló: %s", device, e)

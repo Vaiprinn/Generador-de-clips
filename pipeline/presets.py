@@ -21,8 +21,9 @@ DEFAULTS: dict = {
         "type": "facecam_esquina",  # facecam_esquina | split | blur | sin_facecam
         # Rectángulo de la facecam en el vídeo ORIGINAL, en fracciones [x, y, ancho, alto].
         "facecam_rect": [0.0, 0.0, 0.25, 0.25],
-        "facecam_position": "top-right",  # top-right | top-left | top-center
+        "facecam_position": "top-right",  # top-right | top-left | top-center | custom (arrastrada)
         "facecam_width": 0.60,  # fracción del ancho de salida (1080)
+        "facecam_x": 400,  # px desde la izquierda (solo con posición "custom")
         "facecam_y": 200,  # px desde arriba en la salida
         "facecam_margin": 40,  # px al borde lateral
         "facecam_radius": 28,
@@ -31,6 +32,10 @@ DEFAULTS: dict = {
         "gameplay_offset": 0.0,
         "gameplay_offset_y": 0.0,  # -1 arriba · 0 centro · 1 abajo (solo con zoom)
         "gameplay_zoom": 1.0,
+        # Recuadro del gameplay marcado en el editor [x, y, ancho, alto] (fracciones). Si existe,
+        # manda sobre desplazamiento/zoom: se ve exactamente lo que hay dentro (con fondo
+        # desenfocado si su forma no llena el hueco). Vacío = recorte por desplazamiento/zoom.
+        "gameplay_rect": [],
         "split_ratio": 0.42,  # split: alto de la facecam (fracción de 1920)
         "blur_strength": 20,  # blur: intensidad del desenfoque del fondo
         "blur_fg_y": 960,  # blur: centro vertical del gameplay 16:9
@@ -55,6 +60,9 @@ DEFAULTS: dict = {
         "active_color": "#39E75F",  # karaoke: palabra que se está diciendo
         "pop_scale": 115,  # karaoke: % del "pop"
         "animation": "pop",  # solo Remotion: entrada de cada frase (pop | slide | fade | none)
+        # «Distinguir voces»: color y visibilidad de cada voz (Voz 1 = la que más habla).
+        "speaker_colors": ["#FFFFFF", "#7CE7FF", "#FFB86B", "#C6FF6B"],
+        "speaker_show": [True, True, True, True],
     },
     # Título gancho (solo Modo Short). El texto se escribe por vídeo en la revisión.
     "hook": {
@@ -118,6 +126,9 @@ DEFAULTS: dict = {
         "device": "auto",  # auto | cuda | cpu
         "glossary": "",
         "reuse_cache": True,
+        "dialect": "latam",  # latam | mx | co | ar | cl | pe | ve | es (ver transcribe.DIALECT_PROMPTS)
+        "speakers": 0,  # nº de voces al distinguirlas (0 = automático)
+        "speaker_threshold": 0.3,  # más bajo = separa voces más parecidas (0.3 va bien con voz de Discord)
     },
     "audio": {
         "transcribe_track": 0,  # pista con el micro (0 = primera)
@@ -135,6 +146,7 @@ DEFAULTS: dict = {
         "isolate_voice": False,
         "llm_correction": False,
         "export_srt": True,
+        "speakers": False,  # distinguir voces y colorear los subtítulos por persona
     },
     "render": {
         "encoder": "auto",  # auto | nvenc | amf | x264

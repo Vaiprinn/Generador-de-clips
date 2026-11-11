@@ -20,6 +20,27 @@ Todo offline y gratis: faster-whisper + FFmpeg + Gradio en `http://127.0.0.1:786
 4. *(Opcional)* Para el motor **Remotion** instala Node.js (`winget install OpenJS.NodeJS.LTS`) y vuelve a
    abrir `run.bat`: instala Remotion en `remotion/` y su navegador (~300 MB) una sola vez.
 
+## ✨ ClipForge Studio (la app nueva)
+
+Programa con **ventana propia** (WebView2 de Windows) que usa el mismo motor. Ábrelo con el acceso
+directo **ClipForge Studio** del escritorio, o con `.venv\Scripts\pythonw.exe -m studio.main`
+(`--browser` lo abre en el navegador).
+
+1. **Elige un vídeo** (clic o arrastrar). Se lee del disco: un directo de 20 GB no se copia.
+2. **¿Qué quieres hacer?**
+   - ✂️ **Convertir en Short**: recortas con el reproductor, escribes el gancho y ves cómo quedará.
+   - 🔎 **Sacar los mejores momentos**: busca en todo el directo y te enseña cada clip en una tarjeta
+     con su reproductor; ajustas inicio/fin (±1 s, ±5 s), escribes gancho y título, apruebas y se
+     crean los Shorts.
+   - 📺 **Episodio de YouTube**: los mejores tramos en orden, sin silencios largos, con intro del mejor
+     momento, capítulos (editables, con vista previa), miniatura 1280×720 con texto, descripción con
+     los capítulos desde 00:00 y `.srt`.
+3. **🎨 Mi estilo**: tu @, estilo y colores de los subtítulos, gancho, extras (zoom, efectos, barra,
+   marca de agua), acento y glosario, con vista previa en vivo. Se guarda por juego.
+
+Los proyectos quedan en `output/<directo>/` y aparecen en la pantalla de inicio para seguir donde lo
+dejaste. Código: `studio/` (servidor FastAPI + interfaz HTML/JS) y `pipeline/episode.py`.
+
 ## Buscar momentos en un directo largo (VOD)
 
 Arriba del todo, **🔎 Buscar momentos en un directo largo**: escribe la ruta del directo (1-4 h) y pulsa
@@ -54,9 +75,12 @@ sección `"highlights"` del preset (valores por defecto en `pipeline/highlights.
    - *Split*: facecam arriba a todo el ancho, gameplay abajo (alto ajustable).
    - *Blur*: gameplay 16:9 centrado sobre el mismo vídeo desenfocado.
    - *Sin facecam*.
-   Marca la facecam o el gameplay con **dos clics** (esquinas opuestas) sobre el fotograma original,
-   usa **🔎 Autodetectar facecam** (necesita `opencv-python`, ver extras) o ajusta los deslizadores.
-   **👁 Vista previa** enseña el original (rojo = facecam, azul = gameplay) y el resultado.
+   En **Encuadre y vista previa** aparece un fotograma con dos recuadros que se **arrastran y
+   redimensionan**: rojo = tu webcam en el original, azul = la parte del juego que se verá. Al subir un
+   vídeo la webcam se busca sola (detector de caras YuNet + bordes reales del recuadro; botón
+   **🔎 Buscar mi webcam** para repetirlo). Si la forma del recuadro azul no llena la pantalla, el resto
+   se rellena con el juego desenfocado (**▣ Ver todo el juego** enseña el campo entero; **⤢ Llenar la
+   pantalla** lo ajusta para que no queden bordes). La vista previa del resultado se actualiza sola.
 3. **Subtítulos** — al cambiar de estilo se cargan sus valores típicos:
    - *Frase*: 3–5 palabras, blanco con contorno negro y sombra (Nunito Black).
    - *Resaltado*: 2–5 palabras en minúsculas, sombra paralela, palabras clave en amarillo `#FFE14D`.
@@ -90,7 +114,8 @@ sección `"highlights"` del preset (valores por defecto en `pipeline/highlights.
    suaves: las frases entran con pop/deslizamiento/fundido, el gancho rebota, el zoom va con curvas).
    Usa los mismos ajustes; es bastante más lento (minutos en vez de segundos por clip). Si Node.js o
    Remotion no están instalados, se usa FFmpeg y se avisa en el registro. El Modo Largo siempre usa FFmpeg.
-10. **🚀 Procesar todos**. Los archivos salen en `output/`:
+10. **🚀 Generar clips**. En **🎬 Tus clips** puedes ver cualquier clip generado sin salir de la app.
+    Los archivos salen en `output/`:
 
 | Archivo | Contenido |
 |---|---|
@@ -123,7 +148,7 @@ pipeline/
   subtitles.py          Estilos Frase/Resaltado/Karaoke, título gancho, .ass y .srt
   keywords.py           Palabras clave a resaltar (heurística, sin LLM)
   layout.py             Layouts Short (esquina/split/blur) y Largo, filtergraph de FFmpeg
-  facedetect.py         Autodetección de la facecam (OpenCV; MediaPipe si trae la API clásica)
+  facedetect.py         Autodetección de la webcam (YuNet de OpenCV + bordes persistentes)
   phrases.py            Edición de subtítulos por frase (texto/tiempos → palabras)
   silence.py            Corte de silencios y reajuste de tiempos
   effects.py            Auto-zoom: volumen por palabra, gritos y expresión de zoompan

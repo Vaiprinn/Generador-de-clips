@@ -4,9 +4,13 @@ faster-whisper>=1.1.1
 Pillow>=10.0
 numpy>=1.24
 python-dotenv>=1.0
+opencv-python-headless>=4.8,<5  # autodetectar la facecam (detector de caras YuNet)
+sherpa-onnx>=1.12  # «Distinguir voces» (sin PyTorch; los modelos se bajan la primera vez)
 
 # ---------------------------------------------------------------------------
 # Extras opcionales (fases siguientes). Instálalos con:
 #   .venv\Scripts\python -m pip install -r requirements-extras.txt
 # GPU NVIDIA para Whisper (run.bat lo instala solo si detecta nvidia-smi):
 #   .venv\Scripts\python -m pip install -r requirements-gpu.txt
+pywebview>=5.3  # ClipForge Studio: ventana propia (usa WebView2 de Windows)
+segno>=1.6  # código QR para abrir Studio desde el móvil

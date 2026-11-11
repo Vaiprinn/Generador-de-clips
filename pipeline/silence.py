@@ -40,6 +40,50 @@ def detect_silences_audio(src: str, track: int, threshold_db: float, min_dur: fl
     return silences
 
 
+_FREEZE_START = re.compile(r"freeze_start:\s*(-?[\d.]+)")
+_FREEZE_END = re.compile(r"freeze_end:\s*(-?[\d.]+)")
+
+
+def detect_still(src: str, min_dur: float, duration: float, noise_db: float = -45.0,
+                 start: float | None = None) -> list[Segment]:
+    """Tramos con la imagen casi quieta (menús, pantallas de carga, pausa), a baja resolución.
+    Con `start`, solo mira [start, start + duration] y devuelve tiempos relativos a `start`."""
+    seek = ["-ss", f"{start:.3f}", "-t", f"{duration:.3f}"] if start is not None else []
+    out = media.run([
+        ffmpeg_bin(), "-hide_banner", "-nostats", *seek, "-i", str(src), "-an", "-sn",
+        # Solo el centro de la imagen: la webcam suele ir en una esquina y, como te mueves, un menú
+        # con facecam nunca parecería «quieto».
+        "-vf", f"crop=iw*0.6:ih*0.6:iw*0.2:ih*0.2,scale=320:-2,freezedetect=n={noise_db}dB:d={min_dur}", "-f", "null", "-",
+    ]).stderr
+    still: list[Segment] = []
+    start = None
+    for line in out.splitlines():
+        if (m := _FREEZE_START.search(line)):
+            start = max(0.0, float(m.group(1)))
+        elif (m := _FREEZE_END.search(line)) and start is not None:
+            still.append((start, float(m.group(1))))
+            start = None
+    if start is not None:
+        still.append((start, duration))
+    return still
+
+
+def intersect(a: list[Segment], b: list[Segment], min_dur: float = 0.0) -> list[Segment]:
+    """Partes comunes de dos listas de tramos (p. ej. silencio Y imagen quieta = tiempo muerto)."""
+    out: list[Segment] = []
+    i = j = 0
+    a, b = sorted(a), sorted(b)
+    while i < len(a) and j < len(b):
+        s, e = max(a[i][0], b[j][0]), min(a[i][1], b[j][1])
+        if e - s >= max(min_dur, 0.01):
+            out.append((s, e))
+        if a[i][1] < b[j][1]:
+            i += 1
+        else:
+            j += 1
+    return out
+
+
 def silences_from_words(words: list[Word], duration: float, min_dur: float) -> list[Segment]:
     if not words:
         return []
@@ -66,6 +110,23 @@ def keep_segments(duration: float, silences: list[Segment], padding: float = 0.1
     if duration - t >= min_keep:
         keeps.append((round(t, 3), round(duration, 3)))
     return keeps
+
+
+def clip_to(segments: list[Segment] | None, start: float, end: float, duration: float) -> list[Segment] | None:
+    """Recorta los tramos al intervalo [start, end] (el trozo del vídeo elegido para el clip).
+
+    None si el resultado es el vídeo entero sin cortes (no hace falta select).
+    """
+    start, end = max(0.0, start), min(duration, end if end > 0 else duration)
+    if not segments and start <= 0.01 and end >= duration - 0.01:
+        return None
+    base = segments or [(0.0, duration)]
+    out = [(round(max(a, start), 3), round(min(b, end), 3)) for a, b in base if min(b, end) - max(a, start) > 0.05]
+    return out or segments
+
+
+def inside(t: float, segments: list[Segment]) -> bool:
+    return any(a <= t <= b for a, b in segments)
 
 
 def total(segments: list[Segment]) -> float:

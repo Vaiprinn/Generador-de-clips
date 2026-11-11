@@ -77,6 +77,7 @@ def group_phrases(
             chars = sum(len(x.text) + 1 for x in cur) + len(w.text)
             if (
                 w.start - prev.end > gap_split
+                or (w.spk >= 0 and prev.spk >= 0 and w.spk != prev.spk)  # cambia la voz
                 or _STRONG_PUNCT.search(prev.text)
                 or (_SOFT_PUNCT.search(prev.text) and len(cur) >= min_words)
                 or len(cur) >= max_words
@@ -101,6 +102,7 @@ def _merge_orphans(groups, max_words, max_chars, gap_split):
             chars = sum(len(x.text) + 1 for x in prev) + len(g[0].text)
             if (
                 g[0].start - prev[-1].end <= gap_split
+                and g[0].spk == prev[-1].spk
                 and not _STRONG_PUNCT.search(prev[-1].text)
                 and len(prev) < max_words + 1
                 and chars <= max_chars + 6
@@ -262,6 +264,20 @@ def _karaoke_text(words: list[Word], active: int, cfg: dict, highlight: bool, an
     return " ".join(parts)
 
 
+def _speaker_cfg(words: list[Word], cfg: dict) -> tuple[dict, str]:
+    """Con «Distinguir voces», cada frase usa el color de la voz que la dice."""
+    if not cfg.get("color_by_speaker"):
+        return cfg, ""
+    spks = [w.spk for w in words if w.spk >= 0]
+    if not spks:
+        return cfg, ""
+    spk = max(set(spks), key=spks.count)
+    colors = list(cfg.get("speaker_colors") or [])
+    if spk >= len(colors):
+        return cfg, ""
+    return {**cfg, "primary_color": colors[spk]}, f"\\1c{ass_inline_color(colors[spk])}"
+
+
 # ---------------------------------------------------------------- ASS completo
 
 def build_ass(
@@ -303,19 +319,22 @@ def build_ass(
         tag = f"{{\\pos({x},{y}){fad}}}"
         phrases = build_phrases(words, cfg)
         for p in phrases:
+            pcfg, color_tag = _speaker_cfg(p.words, cfg)
             if style == "karaoke":
                 for j, w in enumerate(p.words):
                     start = p.start if j == 0 else w.start
                     end = p.words[j + 1].start if j + 1 < len(p.words) else p.end
                     if end - start < 0.01:
                         continue
-                    text = _karaoke_text(p.words, j, cfg, highlight, animate)
+                    text = _karaoke_text(p.words, j, pcfg, highlight, animate)
                     if text:
-                        events.append(f"Dialogue: 0,{ass_time(start)},{ass_time(end)},Sub,,0,0,0,,{{\\pos({x},{y})}}{text}")
+                        events.append(f"Dialogue: 0,{ass_time(start)},{ass_time(end)},Sub,,0,0,0,,"
+                                      f"{{\\pos({x},{y}){color_tag}}}{text}")
             else:
-                text = _phrase_text(p.words, cfg, highlight or style == "resaltado")
+                text = _phrase_text(p.words, pcfg, highlight or style == "resaltado")
                 if text:
-                    events.append(f"Dialogue: 0,{ass_time(p.start)},{ass_time(p.end)},Sub,,0,0,0,,{tag}{text}")
+                    events.append(f"Dialogue: 0,{ass_time(p.start)},{ass_time(p.end)},Sub,,0,0,0,,"
+                                  f"{tag[:-1]}{color_tag}}}{text}")
 
     if hook and (hook.get("text") or "").strip():
         hs, he = _hook_events(hook, width, height, duration, animate)
@@ -350,6 +369,23 @@ def build_ass(
     return "\n".join(lines) + "\n"
 
 
+def _balance_lines(text: str, max_chars: int) -> str:
+    """Parte en líneas (con «|») de como mucho max_chars, lo más igualadas posible."""
+    words = text.split()
+    if len(text) <= max_chars or len(words) < 2:
+        return text
+    n = -(-len(text) // max_chars)  # nº de líneas necesario
+    target = len(text) / n
+    lines, cur = [], ""
+    for w in words:
+        if cur and len(cur) + 1 + len(w) > max(target, max_chars * 0.6) and len(lines) < n - 1:
+            lines.append(cur)
+            cur = w
+        else:
+            cur = f"{cur} {w}".strip()
+    return "|".join(lines + [cur])
+
+
 def _hook_events(hook: dict, width: int, height: int, duration: float, animate: bool):
     """Título gancho estilo sticker: dos capas del mismo texto.
 
@@ -373,6 +409,10 @@ def _hook_events(hook: dict, width: int, height: int, duration: float, animate: 
     text = (hook.get("text") or "").strip()
     if hook.get("uppercase", True):
         text = text.upper()
+    if (hook.get("anim") or "pop") == "golpe" and "|" not in text:
+        # «golpe» no deja partir líneas (\q2: si no, al empezar enorme saldría en 3 líneas):
+        # un gancho largo se parte aquí en dos líneas equilibradas.
+        text = _balance_lines(text, max(8, int(16 * 120 / max(int(hook.get("font_size", 120)), 1))))
     text = ass_escape(text).replace("|", "\\N")
     dur = float(hook.get("duration", 2.5))
     end = duration if dur <= 0 and duration > 0 else (dur if dur > 0 else 3600.0)
@@ -380,8 +420,32 @@ def _hook_events(hook: dict, width: int, height: int, duration: float, animate: 
     y = int(hook.get("pos_y") or 650)
     tilt = float(hook.get("tilt", 0) or 0)
     rot = f"\\frz{tilt:g}" if tilt else ""
-    anim = "\\fscx60\\fscy60\\t(0,120,\\fscx110\\fscy110)\\t(120,220,\\fscx100\\fscy100)\\fad(0,150)" if animate else ""
-    tag = f"{{\\pos({x},{y}){rot}{anim}}}"
+    kind = hook.get("anim") or "pop"
+    pos = f"\\pos({x},{y})"
+    anim = ""
+    # Al final el gancho se desvanece; hook.fade_out = segundos que tarda (0 = se quita de golpe).
+    fade = max(0.0, min(float(hook.get("fade_out", 0.6) or 0), 3.0, end * 0.8))
+    if animate:
+        out = f"\\fad(0,{int(fade * 1000)})"
+        if kind == "golpe":  # entra enorme y transparente y se estampa
+            anim = ("\\q2\\fscx260\\fscy260\\alpha&HFF&\\t(0,150,\\fscx100\\fscy100\\alpha&H00&)"
+                    "\\t(150,210,\\fscx112\\fscy112)\\t(210,280,\\fscx100\\fscy100)" + out)
+        elif kind == "caida":  # cae desde arriba y rebota
+            pos = f"\\move({x},{y - int(520 * k)},{x},{y},0,230)"
+            anim = "\\t(230,300,\\fscx112\\fscy84)\\t(300,400,\\fscx100\\fscy100)" + out
+        elif kind == "deslizar":  # entra desde la izquierda
+            pos = f"\\move({-width // 2},{y},{x},{y},0,260)"
+            anim = "\\t(260,340,\\fscx106)\\t(340,420,\\fscx100)" + out
+        elif kind == "temblor":  # aparece y tiembla
+            base = tilt
+            anim = "\\fscx70\\fscy70\\t(0,90,\\fscx105\\fscy105)\\t(90,150,\\fscx100\\fscy100)" + "".join(
+                f"\\t({a},{a + 55},\\frz{base + d:g})" for a, d in
+                ((90, -7), (145, 6), (200, -5), (255, 4), (310, -2), (365, 0))) + out
+        elif kind == "fijo":
+            anim = f"\\fad(120,{int(fade * 1000)})"
+        else:  # pop
+            anim = "\\fscx60\\fscy60\\t(0,120,\\fscx110\\fscy110)\\t(120,220,\\fscx100\\fscy100)" + out
+    tag = f"{{{pos}{rot}{anim}}}"
     events = [
         f"Dialogue: {layer},{ass_time(0)},{ass_time(end)},{st},,0,0,0,,{tag}{text}"
         for layer, st in ((0, "GanchoFondo"), (1, "Gancho"))

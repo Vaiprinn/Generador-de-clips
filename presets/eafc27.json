@@ -1,7 +1,7 @@
 {
   "name": "eafc27",
   "mode": "short",
-  "handle": "@tuhandle",
+  "handle": "@Vaiprinn",
   "layout": {
     "type": "facecam_esquina",
     "facecam_rect": [
@@ -12,16 +12,19 @@
     ],
     "facecam_position": "top-right",
     "facecam_width": 0.6,
+    "facecam_x": 400,
     "facecam_y": 200,
     "facecam_margin": 40,
     "facecam_radius": 28,
     "facecam_shadow": true,
-    "gameplay_offset": 0.0,
-    "gameplay_offset_y": 0.0,
-    "gameplay_zoom": 1.0,
+    "gameplay_offset": 0,
+    "gameplay_offset_y": 0,
+    "gameplay_zoom": 1,
+    "gameplay_rect": [],
     "split_ratio": 0.42,
     "blur_strength": 20,
-    "blur_fg_y": 960
+    "blur_fg_y": 960,
+    "track": "indicador"
   },
   "subtitles": {
     "style": "frase",
@@ -32,7 +35,7 @@
     "shadow_color": "#000000",
     "outline": 4,
     "shadow": 3,
-    "case": "original",
+    "case": "minusculas",
     "strip_punctuation": true,
     "min_words": 3,
     "max_words": 5,
@@ -42,7 +45,19 @@
     "highlight_color": "#FFE14D",
     "active_color": "#39E75F",
     "pop_scale": 115,
-    "animation": "pop"
+    "animation": "pop",
+    "speaker_colors": [
+      "#FFFFFF",
+      "#7CE7FF",
+      "#FFB86B",
+      "#C6FF6B"
+    ],
+    "speaker_show": [
+      true,
+      true,
+      true,
+      true
+    ]
   },
   "hook": {
     "text": "",
@@ -103,24 +118,28 @@
     "language": "es",
     "device": "auto",
     "glossary": "EA Sports FC 27, Ultimate Team, FUT, Champions, Division Rivals, Squad Battles, SBC, TOTW, TOTY, Evo, química, Mbappé, Vinícius, Bellingham, Haaland, Lamine Yamal, Pedri, regate, chilena, golazo, pase al hueco",
-    "reuse_cache": true
+    "reuse_cache": true,
+    "dialect": "latam",
+    "speakers": 0,
+    "speaker_threshold": 0.3
   },
   "audio": {
     "transcribe_track": 0,
     "output_track": "0"
   },
   "toggles": {
-    "subtitles": true,
+    "subtitles": false,
     "hook_title": false,
-    "highlight_keywords": false,
+    "highlight_keywords": true,
     "cut_silences": false,
     "auto_zoom": false,
     "sfx": false,
     "progress_bar": false,
-    "watermark": false,
+    "watermark": true,
     "isolate_voice": false,
     "llm_correction": false,
-    "export_srt": true
+    "export_srt": true,
+    "speakers": false
   },
   "render": {
     "encoder": "auto",

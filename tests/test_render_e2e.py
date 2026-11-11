@@ -60,6 +60,16 @@ def test_short_render(sample, tmp_path, layout_type, audio, style):
     assert "6. Render (FFmpeg)" in res.timings
 
 
+@pytest.mark.parametrize("layout_type", ["facecam_esquina", "split"])
+def test_short_render_whole_game_fit(sample, tmp_path, layout_type):
+    preset = load_preset("eafc27")
+    preset["layout"].update(type=layout_type, gameplay_rect=[0, 0, 1, 1], facecam_rect=[0.79, 0, 0.21, 0.32])
+    preset["render"]["encoder"] = "x264"
+    res = process_video(sample, preset, words=[Word("golazo", 0.2, 0.8)], output_dir=tmp_path)
+    v = next(s for s in _probe(res.video)["streams"] if s["codec_type"] == "video")
+    assert (v["width"], v["height"]) == (1080, 1920)
+
+
 @pytest.mark.skipif(not has_amf(), reason="sin GPU AMD (h264_amf)")
 def test_short_render_amf(sample, tmp_path):
     preset = load_preset("gta")

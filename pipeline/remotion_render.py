@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import subtitles
-from .layout import OUT_H, OUT_W, Rect, ShortLayout
+from .layout import OUT_H, OUT_W, Rect, ShortLayout, cover_crop
 from .media import _NO_WINDOW, MediaInfo, amf_args, resolve_encoder
 from .paths import FONTS_DIR, ROOT, ffmpeg_bin
 from .render import build_audio, ffmpeg_version
@@ -199,7 +199,9 @@ def build_props(
         "video": {"src": video_name, "width": base.width, "height": base.height},
         "layout": {
             "type": layout.type,
-            "gameplay": _rect(layout.gameplay),
+            # Remotion siempre llena el hueco: un recuadro libre (fit) se recorta a su forma.
+            "gameplay": _rect(cover_crop(layout.gameplay, layout.gameplay_dst.w / layout.gameplay_dst.h)
+                              if layout.fit else layout.gameplay),
             "gameplayDst": _rect(layout.gameplay_dst),
             "facecamSrc": _rect(layout.facecam_src),
             "facecamDst": _rect(layout.facecam_dst),

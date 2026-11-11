@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from . import llm, media, sfx, silence, subtitles
+from . import edits, llm, media, sfx, silence, speakers, subtitles
 from .effects import shout_indices, word_loudness_db, zoom_expr, zoom_times
 from .keywords import auto_highlight
 from .layout import OUT_H, OUT_W, FilterOptions, build_long_filter, build_short_filter, compute_short_layout
@@ -94,6 +94,16 @@ def transcribe_video(
 
         with timer.step("3. Transcribir (faster-whisper)"):
             words, device = transcribe_cached(src, make_wav, track, cfg, info.duration, report)
+        if preset["toggles"].get("speakers") and words:
+            report(0.97, "Distinguiendo voces…")
+            try:
+                with timer.step("3a. Distinguir voces"):
+                    segs = speakers.diarize_cached(src, track, int(cfg.get("speakers", 0) or 0),
+                                                   float(cfg.get("speaker_threshold", 0.3)))
+                speakers.assign(words, segs)
+            except Exception as e:  # opcional: sin voces, los subtítulos salen igual
+                log.warning("Voces: %s", e)
+                notes.append(f"Distinguir voces no disponible: {e}")
         auto_highlight(words, preset["transcription"].get("glossary", ""))
         report(1.0, f"Transcripción lista ({len(words)} palabras, {device}).")
         return words
@@ -137,6 +147,83 @@ def _watermark_cfg(preset: dict) -> dict | None:
     return dict(preset["watermark"], text=handle)
 
 
+def track_exclusions(lay_cfg: dict) -> list[list[float]]:
+    """Zonas que se mueven pero no son la jugada: webcam, marcador, radar y la franja inferior del HUD."""
+    from .layout import HUD_RADAR_RECT, HUD_SCORE_RECT
+
+    return [list(lay_cfg.get("facecam_rect") or lay_cfg.get("hide_rect") or [0, 0, 0, 0]),
+            list(lay_cfg.get("hud_score_rect") or HUD_SCORE_RECT),
+            list(lay_cfg.get("hud_radar_rect") or HUD_RADAR_RECT),
+            [0.0, 0.88, 1.0, 0.12]]
+
+
+def make_track_file(src: Path, info: media.MediaInfo, lay_cfg: dict, layout, segs, trim, work: Path) -> Path:
+    """Recorrido suavizado de la cámara virtual → archivo sendcmd para el crop del gameplay."""
+    from . import tracking
+
+    start = float(trim[0]) if trim else 0.0
+    end = min(float(trim[1]), info.duration) if trim else info.duration
+    path = tracking.track_path(src, start, end - start, info.width, info.height, track_exclusions(lay_cfg),
+                               lay_cfg.get("track", "movimiento"))
+    smooth = tracking.smooth_path(path, layout.gameplay.w / info.width)
+
+    def time_map(t_rel: float):
+        t = t_rel + start
+        if segs:
+            return silence.remap_time(t, segs) if silence.inside(t, segs) else None
+        return t_rel
+
+    return tracking.write_sendcmd(smooth, layout.gameplay.w, info.width, work / "track.cmd", time_map=time_map)
+
+
+def zoom_moments(zooms: list, segs, trim) -> list:
+    """Zooms a mano ({t, d, x, y, w}, t en segundos del vídeo original) → tramos del Short."""
+    start = float(trim[0]) if trim else 0.0
+    out = []
+    for z in zooms or []:
+        try:
+            a, b = float(z["t"]), float(z["t"]) + max(0.3, float(z.get("d", 1.5)))
+            box = (float(z.get("x", 0.25)), float(z.get("y", 0.25)), float(z.get("w", 0.5)))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if segs:
+            inside = [(max(a, s), min(b, e)) for s, e in segs if min(b, e) > max(a, s)]
+            if not inside:
+                continue
+            a, b = silence.remap_time(inside[0][0], segs), silence.remap_time(inside[-1][1], segs)
+        else:
+            a, b = a - start, b - start
+        if b > 0:
+            out.append((max(0.0, a), b, *box))
+    return out
+
+
+def hud_enables(src: Path, info: media.MediaInfo, layout, segs, trim) -> list:
+    """Por cada HUD recolocado (marcador, radar): cuándo se muestra. En pausas, repeticiones, menús o
+    al acabar el partido el juego lo quita, y su copia en el Short enseñaría lo que haya debajo."""
+    from . import hudwatch
+
+    start = float(trim[0]) if trim else 0.0
+    end = min(float(trim[1]), info.duration) if trim else info.duration
+
+    def time_map(t_rel: float):
+        t = t_rel + start
+        if segs:
+            return silence.remap_time(t, segs) if silence.inside(t, segs) else None
+        return t_rel
+
+    out = []
+    for s, _ in layout.hud:
+        try:
+            rect = [s.x / info.width, s.y / info.height, s.w / info.width, s.h / info.height]
+            samples = hudwatch.presence(src, rect, start, end - start, info.width, info.height)
+            out.append(hudwatch.enable_expr(samples, time_map))
+        except Exception as e:  # si falla, el HUD se muestra siempre (como antes)
+            log.warning("HUD: %s", e)
+            out.append(None)
+    return out
+
+
 def process_video(
     src: str | Path,
     preset: dict,
@@ -148,11 +235,13 @@ def process_video(
     hook_text: str | None = None,
     llm_result: llm.LLMResult | None = None,
     metadata_text: str | None = None,
+    trim: tuple[float, float] | None = None,
 ) -> JobResult:
     """Procesa un vídeo (Modo Short o Largo).
 
     `words` permite saltarse la transcripción (p. ej. la tabla de revisión). Si
     `reviewed` es True se respetan tal cual sus textos, frases y resaltados.
+    `trim` = (inicio, fin) en segundos del trozo del vídeo que se convierte en clip.
     """
     ensure_dirs()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -161,7 +250,7 @@ def process_video(
     stem = stem or safe_stem(src)
     timer = StepTimer()
     toggles = preset["toggles"]
-    sub_cfg = preset["subtitles"]
+    sub_cfg = dict(preset["subtitles"], color_by_speaker=bool(toggles.get("speakers")))
     short = is_short(preset)
     need_words = toggles.get("subtitles", True) or toggles.get("export_srt", True) or toggles.get("auto_zoom")
     notes: list[str] = []
@@ -206,11 +295,19 @@ def process_video(
                         float(sc["min_duration"]), info.duration)
                 else:
                     sil = []
+                if sil and sc.get("require_still"):
+                    # Solo es tiempo muerto si además la imagen está quieta (menús, cargas): en un juego,
+                    # jugar sin hablar no es un silencio que haya que cortar.
+                    still = silence.detect_still(str(src), float(sc["min_duration"]), info.duration)
+                    sil = silence.intersect(sil, still, float(sc["min_duration"]))
                 segs = silence.keep_segments(info.duration, sil, float(sc.get("padding", 0.15)))
             if not segs or silence.total(segs) >= info.duration - 0.05:
                 segs = None
+        if trim:
+            segs = silence.clip_to(segs, float(trim[0]), float(trim[1]), info.duration)
         out_dur = silence.total(segs) if segs else info.duration
         words_out = silence.remap_words(words, segs) if segs else words
+        words_out = speakers.visible_words(words_out, sub_cfg) if toggles.get("speakers") else words_out
 
         # ---- auto-zoom
         ztimes: list[float] = []
@@ -223,23 +320,35 @@ def process_video(
                     shouts = shout_indices(word_loudness_db(wav, words), float(zc.get("shout_db", 8)))
                 ztimes = zoom_times(words, shouts, zc)
                 if segs:
-                    ztimes = [silence.remap_time(t, segs) for t in ztimes]
+                    ztimes = [silence.remap_time(t, segs) for t in ztimes if silence.inside(t, segs)]
         zexpr = zoom_expr(ztimes, float(preset["zoom"].get("amount", 1.15))) if ztimes else None
 
         if short:
             layout = compute_short_layout(info.width, info.height, preset["layout"])
             out_w, out_h = OUT_W, OUT_H
             hook = _hook_cfg(preset, hook_text, layout.hook_y)
+            if layout.subs_y and preset["layout"].get("subs_follow_layout", True):
+                sub_cfg["pos_y"] = layout.subs_y  # cámara arriba: subtítulos justo debajo
         else:
             layout = None
             out_w, out_h = build_long_filter(info.width, info.height, preset["render"].get("long_resolution", "original"))[1]
             hook = None
 
-        # ---- efectos de sonido
+        # ---- efectos de sonido. El sonido del gancho se elige aparte (hook.sound): suena aunque los
+        # efectos de zooms/cortes estén apagados. "" = el de siempre (sfx.on_hook, si hay efectos).
         sfx_events = []
-        if toggles.get("sfx"):
-            cuts = silence.cut_points(segs) if segs else []
-            sfx_events = sfx.build_events(preset["sfx"], ztimes, cuts, hook is not None)
+        sfx_cfg = dict(preset["sfx"]) if toggles.get("sfx") else {}
+        hook_sound = preset["hook"].get("sound") or ""
+        if hook_sound:
+            sfx_cfg["on_hook"] = "" if hook_sound == "ninguno" else hook_sound
+        if sfx_cfg:
+            cuts = silence.cut_points(segs) if segs and toggles.get("sfx") else []
+            hook_file = None
+            cut_to = float(preset["hook"].get("sound_dur") or 0)  # 0 = el sonido entero
+            if hook is not None and cut_to > 0 and (full := sfx.resolve(sfx_cfg.get("on_hook", ""))):
+                if cut_to < sfx.duration(full):
+                    hook_file = sfx.trimmed(full, cut_to, work / "hook_sound.wav")
+            sfx_events = sfx.build_events(sfx_cfg, ztimes if toggles.get("sfx") else [], cuts, hook is not None, hook_file)
 
         report(0.59, "Generando subtítulos…")
         files: list[Path] = []
@@ -272,7 +381,17 @@ def process_video(
             fps=info.fps_str,
             progress_bar=preset["progress_bar"] if toggles.get("progress_bar") else None,
             duration=out_dur,
+            intro=(preset.get("intro") or {}).get("effect", "") if short else "",
         )
+        if short and layout is not None and layout.track and layout.gameplay.w < info.width:
+            report(0.6, "Siguiendo la acción…")
+            with timer.step("5b. Seguimiento de la acción"):
+                opts.track_file = make_track_file(src, info, preset["layout"], layout, segs, trim, work)
+        if short and preset.get("zooms"):
+            opts.zooms = zoom_moments(preset["zooms"], segs, trim)
+        if short and layout is not None and layout.hud:
+            with timer.step("5c. Marcador visible"):
+                opts.hud_enable = hud_enables(src, info, layout, segs, trim)
         report(_W_RENDER[0], "Renderizando…")
         out_video = output_dir / f"{stem}_{'short' if short else 'largo'}.mp4"
         engine = preset["render"].get("engine", "ffmpeg")
@@ -331,7 +450,9 @@ def process_video(
 
         n_hl = sum(1 for w in words_out if w.hl)
         mode_txt = f"Short | Layout: {preset['layout']['type']}" if short else "Largo"
-        cut_txt = (f"{len(segs) - 1} cortes (−{info.duration - out_dur:.1f} s)" if segs else "—")
+        cut_txt = (f"{len(segs) - 1} cortes" if segs and len(segs) > 1 else "—")
+        if trim:
+            cut_txt += f"  |  Trozo del clip: {trim[0]:.1f}–{min(trim[1], info.duration):.1f} s"
         metadata = metadata_text.strip() if metadata_text is not None else llm.format_metadata(llm_result)
         stats = {"duracion_original": round(info.duration, 2), "duracion_final": round(out_dur, 2),
                  "palabras": len(words_out), "cortes": len(segs) - 1 if segs else 0,
@@ -352,6 +473,14 @@ def process_video(
         meta = output_dir / f"{stem}_meta.txt"
         meta.write_text(summary, encoding="utf-8")
         files = [out_video, *files, meta]
+        if short:  # para poder corregir textos y efectos después (Studio → ✏️ Corregir)
+            try:
+                rec = edits.make_record(
+                    words, segs, sub_cfg, input_path=src, trim=trim,
+                    hook_text=hook["text"] if hook else "", metadata=metadata or "", stem=stem)
+                files.append(edits.save(rec, out_video))
+            except Exception as e:  # nunca romper un render por esto
+                log.warning("edit record: %s", e)
         report(1.0, "¡Listo!")
         return JobResult(out_video, files, timer.as_dict(), summary, metadata, stats)
     finally:
